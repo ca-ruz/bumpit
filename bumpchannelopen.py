@@ -108,22 +108,20 @@ def calculate_confirmed_unreserved_amount(json_data):
 
 # TODO
 
-def calculate_child_fee(feb12_parent_fee, feb12_parent_size, feb12_child_size):
+def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_feerate):
     """
-    Calculates the child transaction fee from the parent's fee and size.
+    Calculates the required child transaction fee to achieve the desired total feerate.
 
-    :param feb12_parent_fee: The fee paid by the parent transaction (in satoshis).
-    :param feb12_parent_size: The size of the parent transaction (in vbytes).
-    :param feb12_child_size: The size of the child transaction (in vbytes).
-    :return: The minimum fee required for the child transaction (in satoshis).
+    :param parent_fee: Fee paid by the parent transaction (in satoshis).
+    :param parent_vsize: Size of the parent transaction (in vbytes).
+    :param child_vsize: Size of the child transaction (in vbytes).
+    :param desired_total_feerate: Desired total feerate (in sat/vB).
+    :return: The required child transaction fee (in satoshis).
     """
-    parent_feerate = feb12_parent_fee / feb12_parent_size  # sat/vB
-    child_fee = parent_feerate * feb12_child_size
-    return int(child_fee)  # Return as an integer (satoshis)
-
-# Example usage:
-print(calculate_child_fee(1000, 250, 150))  # Adjust values as needed
-
+    total_vsize = parent_vsize + child_vsize
+    total_fee = desired_total_feerate * total_vsize
+    child_fee = total_fee - parent_fee
+    return max(0, int(child_fee))  # Ensure non-negative fee
 
 
 @plugin.method("bumpchannelopen")
@@ -509,15 +507,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
         # TODO Maybe uncomment this later, till the next TODO
 
-        # total_vsizes = parent_vsize + child_vsize
-        # plugin.log(f"Contents of total_vsizes: {total_vsizes}")
-        # total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
-        # plugin.log(f"Contents of total_fees: {total_fees}")
-        # total_feerate = total_fees / total_vsizes
-        # plugin.log(f"Contents of total_feerate: {total_feerate}")
+        total_vsizes = parent_vsize + second_child_vsize
+        plugin.log(f"Contents of total_vsizes: {total_vsizes}")
+        total_fees = (parent_fee + second_child_fee) * 10**8  # Convert fees to satoshis if in BTC
+        plugin.log(f"Contents of total_fees: {total_fees}")
+        total_feerate = total_fees / total_vsizes
+        plugin.log(f"Contents of total_feerate: {total_feerate}")
 
-        # plugin.log(f"Signed PSBT (v2): {signed_v2_psbt}")
-        # plugin.log(f"Signed PSBT (v0): {signed_v0_psbt}")
+        plugin.log(f"Signed PSBT (v2): {second_signed_v2_psbt}")
+        plugin.log(f"Signed PSBT (v0): {second_signed_v0_psbt}")
 
         # TODO
 
@@ -543,6 +541,18 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     except Exception as e:
         plugin.log(f"General error occurred while withdrawing: {str(e)}")
         raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+
+
+
+    child_fee = calculate_child_fee(parent_fee, parent_vsize, second_child_vsize, fee_rate)
+    print(f"Child transaction fee: {child_fee} satoshis")
+    plugin.log(f"line 547: child_fee variable contains: {child_fee}")
+
+    child_fee_rate = child_fee / second_child_vsize  # sat/vB
+    plugin.log(f"line 550: child_fee_rate variable contains: {child_fee_rate}")
+
+    # total_fee_rate = parent_fee_rate + child_fee_rate
+    # plugin.log(f"line 553: total_fee_rate variable contains: {total_fee_rate}")
 
     # TODO
 
@@ -629,12 +639,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
     # TODO Uncommet this next bit out til the next TODO
 
-    # # Update the dictionary with new key-value pairs & Convert non-serializable objects to serializable formats
-    # response.update({
-    #     "total_vsizes": int(total_vsizes) if total_vsizes is not None else 0,
-    #     "total_fees": int(total_fees) if total_fees is not None else 0,
-    #     "total_feerate": float(total_feerate) if total_feerate is not None else 0.0
-    # })
+    # Update the dictionary with new key-value pairs & Convert non-serializable objects to serializable formats
+    response.update({
+        "total_vsizes": int(total_vsizes) if total_vsizes is not None else 0,
+        "total_fees": int(total_fees) if total_fees is not None else 0,
+        "total_feerate": float(total_feerate) if total_feerate is not None else 0.0
+    })
 
     # plugin.log(f"Contents of response: {response}")
 
@@ -654,10 +664,10 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
     # TODO Uncomment this next bit out till the next TODO to replace the return
 
-    # return response
+    return response
 
     # TODO
 
-    return "Great"
+    # return "Great"
 
 plugin.run()
