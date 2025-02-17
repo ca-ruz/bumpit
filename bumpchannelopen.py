@@ -106,6 +106,25 @@ def calculate_confirmed_unreserved_amount(json_data):
 #     """
 #     return fee_rate * tx_size
 
+# TODO
+
+def calculate_child_fee(feb12_parent_fee, feb12_parent_size, feb12_child_size):
+    """
+    Calculates the child transaction fee from the parent's fee and size.
+
+    :param feb12_parent_fee: The fee paid by the parent transaction (in satoshis).
+    :param feb12_parent_size: The size of the parent transaction (in vbytes).
+    :param feb12_child_size: The size of the child transaction (in vbytes).
+    :return: The minimum fee required for the child transaction (in satoshis).
+    """
+    parent_feerate = feb12_parent_fee / feb12_parent_size  # sat/vB
+    child_fee = parent_feerate * feb12_child_size
+    return int(child_fee)  # Return as an integer (satoshis)
+
+# Example usage:
+print(calculate_child_fee(1000, 250, 150))  # Adjust values as needed
+
+
 
 @plugin.method("bumpchannelopen")
 def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
@@ -125,9 +144,9 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     plugin.log(f"Network detected: {network}")
 
     #Found a number that works but only if fee rate is 5, if it's high then the feerate drops, if it's low, then the feerate goes up
-    plugin.log(f"line 122 fee_rate before division: {fee_rate}")
-    fee_rate = int(fee_rate/0.0004212)
-    plugin.log(f"line 124 fee_rate after division: {fee_rate}")
+    plugin.log(f"line 136 fee_rate before division: {fee_rate}")
+    # fee_rate = int(fee_rate/0.0004212)
+    # plugin.log(f"line 124 fee_rate after division: {fee_rate}")
 
     if not network:
         plugin.log("Network information is missing")
@@ -143,7 +162,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     for idx, utxo in enumerate(utxos):
         plugin.log(f"{idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat")
 
-    plugin.log(f"line 132: txid variable contains this txid: {txid}")
+    plugin.log(f"line 154: txid variable contains this txid: {txid}")
 
     # Step 3: Calculate the total amount of confirmed and unreserved outputs
     total_sats = calculate_confirmed_unreserved_amount(funds)
@@ -160,14 +179,14 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
                 selected_utxo = utxo
                 break
 
-        plugin.log(f"line 149: txid variable contains this txid: {txid}")
+        plugin.log(f"line 171: txid variable contains this txid: {txid}")
 
     if not selected_utxo:
         raise CPFPError(f"UTXO {txid}:{vout} not found.")
     plugin.log(f"Selected UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}")
     plugin.log(f"Contents of selected_utxo: {selected_utxo}")
 
-    plugin.log(f"line 156: txid variable contains this txid: {txid}")
+    plugin.log(f"line 178: txid variable contains this txid: {txid}")
 
     # Step 5: Fetch UTXO details and convert amount
     amount_msat = selected_utxo["amount_msat"]
@@ -175,12 +194,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         raise CPFPError(f"UTXO {txid}:{vout} not found or already spent.")
     plugin.log(f"amount_msat type: {type(amount_msat)}, value: {amount_msat}")
 
-    plugin.log(f"line 164: txid variable contains this txid: {txid}")
+    plugin.log(f"line 186: txid variable contains this txid: {txid}")
 
     amount = amount_msat // 1000  # Convert msat to satoshis
     plugin.log(f"Fetched UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}, amount={amount} sats")
 
-    plugin.log(f"line 169: txid variable contains this txid: {txid}")
+    plugin.log(f"line 191: txid variable contains this txid: {txid}")
 
 
     # # Step 6: Calculate fee and recipient amount
@@ -224,7 +243,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     plugin.log(f"Bumping selected output using UTXO {utxo_selector}")
 
     # txid contains funding txid    
-    plugin.log(f"line 213: txid variable contains this txid: {txid}")
+    plugin.log(f"line 235: txid variable contains this txid: {txid}")
 
     try:
 
@@ -263,7 +282,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         new_psbt= PartiallySignedTransaction.from_base64(v0_psbt.get("psbt"))
 
         fee = new_psbt.get_fee()
-        plugin.log(f"fee: {fee}")
+        plugin.log(f"psbt first_child fee: {fee}")
 
         plugin.rpc.unreserveinputs(
             psbt=rpc_result.get("psbt"),
@@ -293,124 +312,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
     recipient_amount = amount - emergency_refill_amount - fee # Subtract emergency channel
     plugin.log(f"Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats")
-    plugin.log(f"line 290 fee: {fee}")
-
-    # Second time we call txprepare
-    try:
-        rpc_result = plugin.rpc.txprepare(
-            outputs=[{address: recipient_amount}],
-            utxos=utxo_selector,
-            feerate=fee_rate
-        )
-        plugin.log(f"v0_psbt: {v0_psbt}")
-        plugin.log(f"line 300 fee_rate: {fee_rate}")
-
-        # plugin.rpc.unreserveinputs(
-        #     psbt=rpc_result.get("psbt"),
-        # )
-
-    #     # rpc_result = plugin.rpc.withdraw(
-    #     #     destination=address,
-    #     #     satoshi=recipient_amount,
-    #     #     feerate=fee_rate,
-    #     #     utxos=utxo_selector
-    #     # )
-
-        # plugin.log(f"rpc_result: {json.dumps(rpc_result, indent=4)}")  # Log the full result
-
-    except CPFPError as e:
-        plugin.log(f"CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-    # Step 9: Log and return the transaction details
-    child_txid = rpc_result.get("txid")
-    psbt = rpc_result.get("psbt")
-    signed_psbt = ""
-    
-    # txid contains a new txid    
-    plugin.log(f"line 320: txid variable contains this txid: {txid}")
-    plugin.log(f"line 321: child_txid variable contains this txid: {child_txid}")
-
-    # plugin.log(f"Broadcasted CPFP transaction with txid: {txid}")
-
-    try:
-        signed_v2_psbt = plugin.rpc.signpsbt(
-            psbt=psbt
-        )
-
-        signed_v0_psbt = plugin.rpc.setpsbtversion(
-            psbt=signed_v2_psbt.get("signed_psbt"),
-            version=0
-        )
-
-        plugin.log(f"Signed PSBT (v2): {signed_v2_psbt}")
-        plugin.log(f"Signed PSBT (v0): {signed_v0_psbt}")
-
-        plugin.rpc.unreserveinputs(
-            psbt=rpc_result.get("psbt"),
-        )
-
-    #     # rpc_result = plugin.rpc.withdraw(
-    #     #     destination=address,
-    #     #     satoshi=recipient_amount,
-    #     #     feerate=fee_rate,
-    #     #     utxos=utxo_selector
-    #     # )
-
-        # plugin.log(f"rpc_result: {json.dumps(rpc_result, indent=4)}")  # Log the full result
-
-    except CPFPError as e:
-        plugin.log(f"CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-    child_v0_psbt = signed_v0_psbt.get("psbt")
-    psbt_v0 = "'" + child_v0_psbt + "'"
-    psbt_v2 = signed_v2_psbt.get("signed_psbt")
-
-    # Prepare the final response
-    response = {
-        "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
-        "the details before broadcasting the transaction",
-        "finalize command": f'copy/paste this: bitcoin-cli finalizepsbt {psbt_v0} ',
-        "analyze command": f'copy/paste this: bitcoin-cli analyzepsbt {psbt_v0} ',
-        "signed_v2_psbt": psbt_v2,
-        # "total_vsizes": total_vsizes,
-        # "total_fees": total_fees,
-        # "total_feerate": total_feerate
-    }
-
-    plugin.log(f"line 377: txid variable contains this txid: {txid}")
-    plugin.log(f"line 378: child_txid variable contains this txid: {child_txid}")
-
-    # First attempt using the bitcoin rpc_connection function:
+    plugin.log(f"line 304 fee: {fee}")
+        # First attempt using the bitcoin rpc_connection function:
 
     rpc_connection = connect_bitcoincli(
         rpc_user=plugin.get_option('bump_brpc_user'),
         rpc_password=plugin.get_option('bump_brpc_pass'),
         port=plugin.get_option('bump_brpc_port')
     )
-    plugin.log(f"line 384: Contents of rpc_connection: {rpc_connection}")
-
-    parsed_parent_hex = rpc_connection.getrawtransaction(txid)
-    plugin.log(f"line 387: Contents of parsed_parent_hex: {parsed_parent_hex}")
-
-    # # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
-    # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
-    # plugin.log(f"Contents of rpc_connection: {rpc_connection}")
-    # parsed_parent_hex = rpc_connection.getrawtransaction(txid)
-    # plugin.log(f"Contents of parsed_parent_hex: {parsed_parent_hex}")
+    plugin.log(f"line 312: Contents of rpc_connection: {rpc_connection}")
 
     # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
     # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
@@ -426,6 +336,9 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     parent_fee = total_inputs - total_outputs
     plugin.log(f"Contents of parent_fee: {parent_fee}")
 
+    parsed_parent_hex = rpc_connection.getrawtransaction(txid)
+    plugin.log(f"Contents of parsed_parent_hex: {parsed_parent_hex}")
+
     # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
     # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
     parent_tx_dict = rpc_connection.decoderawtransaction(parsed_parent_hex)
@@ -434,32 +347,298 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     parent_fee_rate = (parent_fee * 10**8) / parent_vsize  # sat/vB
     plugin.log(f"Contents of parent_fee_rate: {parent_fee_rate}")
 
+    # feb12_child_fee = calculate_child_fee(parent_fee, parent_vsize, child_size)
+
+    # Second time we call txprepare
+    try:
+        second_rpc_result = plugin.rpc.txprepare(
+            outputs=[{address: recipient_amount}],
+            utxos=utxo_selector,
+            feerate=fee_rate
+        )
+
+        plugin.log(f"second_rpc_result: {second_rpc_result}")
+        plugin.log(f"second_feerate: {fee_rate}")
+
+        second_v0_psbt = plugin.rpc.setpsbtversion(
+            psbt=second_rpc_result.get("psbt"),
+            version=0
+        )
+        plugin.log(f"second_v0_psbt: {second_v0_psbt}")
+
+        second_new_psbt= PartiallySignedTransaction.from_base64(second_v0_psbt.get("psbt"))
+
+        second_fee = second_new_psbt.get_fee()
+        plugin.log(f"psbt second_fee: {second_fee}")
+
+        # TODO Uncommented for testing, maybe comment back till the next TODO
+
+        # plugin.rpc.unreserveinputs(
+        #     psbt=second_rpc_result.get("psbt"),
+        # )
+
+        # TODO
+
+        # plugin.rpc.unreserveinputs(
+        #     psbt=second_rpc_result.get("psbt"),
+        # )
+
+    #     # second_rpc_result = plugin.rpc.withdraw(
+    #     #     destination=address,
+    #     #     satoshi=recipient_amount,
+    #     #     feerate=fee_rate,
+    #     #     utxos=utxo_selector
+    #     # )
+
+        # plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
+
+    except CPFPError as e:
+        plugin.log(f"CPFPError occurred: {str(e)}")
+        raise CPFPError("Error creating CPFP transaction.")
+    except RpcError as e:
+        plugin.log(f"RPC Error during withdrawal: {str(e)}")
+        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+    except Exception as e:
+        plugin.log(f"General error occurred while withdrawing: {str(e)}")
+        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+
+    # Step 9: Log and return the transaction details
+    first_child = rpc_result.get("txid")
+    first_psbt = rpc_result.get("psbt")
+    first_signed_psbt = ""
+
+    # txid contains a new txid
+    plugin.log(f"line 397: txid variable contains this txid: {txid}")
+    plugin.log(f"line 398: first_child variable contains this txid: {first_child}")
+
+    # plugin.log(f"Broadcasted CPFP transaction with txid: {txid}")
+
+    try:
+            first_signed_v2_psbt = plugin.rpc.signpsbt(
+                psbt=first_psbt
+            )
+
+            first_signed_v0_psbt = plugin.rpc.setpsbtversion(
+                psbt=first_signed_v2_psbt.get("signed_psbt"),
+                version=0
+            )
+            first_child_v0_psbt = first_signed_v0_psbt.get("psbt")
+            first_psbt_v0 = "'" + first_child_v0_psbt + "'"
+            first_psbt_v2 = first_signed_v2_psbt.get("signed_psbt")
+            plugin.log(f"Contents of rpc_connection: {rpc_connection}")
+            first_child_analyzed = rpc_connection.analyzepsbt(first_child_v0_psbt)
+            first_child_fee = first_child_analyzed["fee"]
+            first_child_vsize = first_child_analyzed["estimated_vsize"]
+            first_child_feerate = first_child_analyzed["estimated_feerate"]
+            plugin.log(f"Contents of first_child_fee: {first_child_fee}")
+            plugin.log(f"Contents of first_child_vsize: {first_child_vsize}")
+            plugin.log(f"Contents of first_child_feerate: {first_child_feerate}")
+
+            # first_total_vsizes = parent_vsize + child_vsize
+            # plugin.log(f"Contents of total_vsizes: {total_vsizes}")
+            # first_total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
+            # plugin.log(f"Contents of total_fees: {total_fees}")
+            # first_total_feerate = total_fees / total_vsizes
+            # plugin.log(f"Contents of total_feerate: {total_feerate}")
+
+            # plugin.log(f"Signed PSBT (v2): {signed_v2_psbt}")
+            # plugin.log(f"Signed PSBT (v0): {signed_v0_psbt}")
+
+
+            # TODO maybe uncomment this again? just did it because it seems to be breaking the plugin since the next time we try
+            # get an error message saying that the UTXO is not reserved, til the next TODO
+
+            # plugin.rpc.unreserveinputs(
+            #     psbt=rpc_result.get("psbt"),
+            # )
+
+            # TODO
+
+        #     # second_rpc_result = plugin.rpc.withdraw(
+        #     #     destination=address,
+        #     #     satoshi=recipient_amount,
+        #     #     feerate=fee_rate,
+        #     #     utxos=utxo_selector
+        #     # )
+
+            # plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
+
+    except CPFPError as e:
+        plugin.log(f"CPFPError occurred: {str(e)}")
+        raise CPFPError("Error creating CPFP transaction.")
+    except RpcError as e:
+        plugin.log(f"RPC Error during withdrawal: {str(e)}")
+        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+    except Exception as e:
+        plugin.log(f"General error occurred while withdrawing: {str(e)}")
+        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+
+
+    second_child_txid = second_rpc_result.get("txid")
+    second_psbt = second_rpc_result.get("psbt")
+    second_signed_psbt = ""
+    
+    # txid contains a new txid    
+    plugin.log(f"line 469: txid variable contains this txid: {txid}")
+    plugin.log(f"line 470: first_child variable contains this txid: {first_child}")
+
+    # plugin.log(f"Broadcasted CPFP transaction with txid: {txid}")
+
+    # TODO Uncomment this part of the code til the next TODO
+
+    try:
+        second_signed_v2_psbt = plugin.rpc.signpsbt(
+            psbt=second_psbt
+        )
+
+        second_signed_v0_psbt = plugin.rpc.setpsbtversion(
+            psbt=second_signed_v2_psbt.get("signed_psbt"),
+            version=0
+        )
+        second_child_v0_psbt = second_signed_v0_psbt.get("psbt")
+        second_psbt_v0 = "'" + second_child_v0_psbt + "'"
+        second_psbt_v2 = second_signed_v2_psbt.get("signed_psbt")
+        plugin.log(f"Contents of rpc_connection: {rpc_connection}")
+        second_child_analyzed = rpc_connection.analyzepsbt(second_child_v0_psbt)
+        second_child_fee = second_child_analyzed["fee"]
+        second_child_vsize = second_child_analyzed["estimated_vsize"]
+        second_child_feerate = second_child_analyzed["estimated_feerate"]
+        plugin.log(f"Contents of second_child_fee: {second_child_fee}")
+        plugin.log(f"Contents of second_child_vsize: {second_child_vsize}")
+        plugin.log(f"Contents of second_child_feerate: {second_child_feerate}")
+
+        # TODO Maybe uncomment this later, till the next TODO
+
+        # total_vsizes = parent_vsize + child_vsize
+        # plugin.log(f"Contents of total_vsizes: {total_vsizes}")
+        # total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
+        # plugin.log(f"Contents of total_fees: {total_fees}")
+        # total_feerate = total_fees / total_vsizes
+        # plugin.log(f"Contents of total_feerate: {total_feerate}")
+
+        # plugin.log(f"Signed PSBT (v2): {signed_v2_psbt}")
+        # plugin.log(f"Signed PSBT (v0): {signed_v0_psbt}")
+
+        # TODO
+
+        plugin.rpc.unreserveinputs(
+            psbt=second_rpc_result.get("psbt"),
+        )
+
+        # second_rpc_result = plugin.rpc.withdraw(
+        #     destination=address,
+        #     satoshi=recipient_amount,
+        #     feerate=fee_rate,
+        #     utxos=utxo_selector
+        # )
+
+        plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
+
+    except CPFPError as e:
+        plugin.log(f"CPFPError occurred: {str(e)}")
+        raise CPFPError("Error creating CPFP transaction.")
+    except RpcError as e:
+        plugin.log(f"RPC Error during withdrawal: {str(e)}")
+        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+    except Exception as e:
+        plugin.log(f"General error occurred while withdrawing: {str(e)}")
+        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+
+    # TODO
+
+    # child_v0_psbt = signed_v0_psbt.get("psbt")
+    # psbt_v0 = "'" + child_v0_psbt + "'"
+    # psbt_v2 = signed_v2_psbt.get("signed_psbt")
+
+    # TODO Uncomment this next bit till the next TODO
+
+    # Prepare the final response
+    response = {
+        "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
+        "the details before broadcasting the transaction",
+        "finalize command": f'copy/paste this: bitcoin-cli finalizepsbt {second_psbt_v0} ',
+        "analyze command": f'copy/paste this: bitcoin-cli analyzepsbt {second_psbt_v0} ',
+        "signed_v2_psbt": second_psbt_v2,
+        # "total_vsizes": total_vsizes,
+        # "total_fees": total_fees,
+        # "total_feerate": total_feerate
+    }
+
+    # TODO
+
+    plugin.log(f"line 556: txid variable contains this txid: {txid}")
+    plugin.log(f"line 557: second_child_txid variable contains this txid: {second_child_txid}")
+
+    # # First attempt using the bitcoin rpc_connection function:
+
+    # rpc_connection = connect_bitcoincli(
+    #     rpc_user=plugin.get_option('bump_brpc_user'),
+    #     rpc_password=plugin.get_option('bump_brpc_pass'),
+    #     port=plugin.get_option('bump_brpc_port')
+    # )
+    # plugin.log(f"line 384: Contents of rpc_connection: {rpc_connection}")
+
+    # parsed_parent_hex = rpc_connection.getrawtransaction(txid)
+    # plugin.log(f"line 387: Contents of parsed_parent_hex: {parsed_parent_hex}")
+
+    # # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
+    # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
+    # plugin.log(f"Contents of rpc_connection: {rpc_connection}")
+    # parsed_parent_hex = rpc_connection.getrawtransaction(txid)
+    # plugin.log(f"Contents of parsed_parent_hex: {parsed_parent_hex}")
+
+    # # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
+    # # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
+    # tx = rpc_connection.getrawtransaction(txid, True)
+    # # Calculate total inputs
+    # total_inputs = 0
+    # for vin in tx["vin"]:
+    #     input_tx = rpc_connection.getrawtransaction(vin["txid"], True)
+    #     total_inputs += input_tx["vout"][vin["vout"]]["value"]
+    # # Calculate total outputs
+    # total_outputs = sum(vout["value"] for vout in tx["vout"])
+    # # Calculate the fee
+    # parent_fee = total_inputs - total_outputs
+    # plugin.log(f"Contents of parent_fee: {parent_fee}")
+
+    # # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
+    # # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
+    # parent_tx_dict = rpc_connection.decoderawtransaction(parsed_parent_hex)
+    # parent_vsize = parent_tx_dict.get("vsize")
+    # plugin.log(f"Contents of parent_vsize: {parent_vsize}")
+    # parent_fee_rate = (parent_fee * 10**8) / parent_vsize  # sat/vB
+    # plugin.log(f"Contents of parent_fee_rate: {parent_fee_rate}")
+
     # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
     # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
-    plugin.log(f"Contents of rpc_connection: {rpc_connection}")
-    child_analyzed = rpc_connection.analyzepsbt(child_v0_psbt)
-    child_fee = child_analyzed["fee"]
-    child_vsize = child_analyzed["estimated_vsize"]
-    child_feerate = child_analyzed["estimated_feerate"]
-    plugin.log(f"Contents of child_fee: {child_fee}")
-    plugin.log(f"Contents of child_vsize: {child_vsize}")
-    plugin.log(f"Contents of child_feerate: {child_feerate}")
+    # plugin.log(f"Contents of rpc_connection: {rpc_connection}")
+    # child_analyzed = rpc_connection.analyzepsbt(child_v0_psbt)
+    # child_fee = child_analyzed["fee"]
+    # child_vsize = child_analyzed["estimated_vsize"]
+    # child_feerate = child_analyzed["estimated_feerate"]
+    # plugin.log(f"Contents of child_fee: {child_fee}")
+    # plugin.log(f"Contents of child_vsize: {child_vsize}")
+    # plugin.log(f"Contents of child_feerate: {child_feerate}")
 
-    total_vsizes = parent_vsize + child_vsize
-    plugin.log(f"Contents of total_vsizes: {total_vsizes}")
-    total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
-    plugin.log(f"Contents of total_fees: {total_fees}")
-    total_feerate = total_fees / total_vsizes
-    plugin.log(f"Contents of total_feerate: {total_feerate}")
+    # total_vsizes = parent_vsize + child_vsize
+    # plugin.log(f"Contents of total_vsizes: {total_vsizes}")
+    # total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
+    # plugin.log(f"Contents of total_fees: {total_fees}")
+    # total_feerate = total_fees / total_vsizes
+    # plugin.log(f"Contents of total_feerate: {total_feerate}")
 
-    # Update the dictionary with new key-value pairs & Convert non-serializable objects to serializable formats
-    response.update({
-        "total_vsizes": int(total_vsizes) if total_vsizes is not None else 0,
-        "total_fees": int(total_fees) if total_fees is not None else 0,
-        "total_feerate": float(total_feerate) if total_feerate is not None else 0.0
-    })
+    # TODO Uncommet this next bit out til the next TODO
 
-    plugin.log(f"Contents of response: {response}")
+    # # Update the dictionary with new key-value pairs & Convert non-serializable objects to serializable formats
+    # response.update({
+    #     "total_vsizes": int(total_vsizes) if total_vsizes is not None else 0,
+    #     "total_fees": int(total_fees) if total_fees is not None else 0,
+    #     "total_feerate": float(total_feerate) if total_feerate is not None else 0.0
+    # })
+
+    # plugin.log(f"Contents of response: {response}")
+
+    # TODO
 
     # # Prepare the final response
     # response = {
@@ -473,6 +652,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     #     "total_feerate": total_feerate
     # }
 
-    return response
+    # TODO Uncomment this next bit out till the next TODO to replace the return
+
+    # return response
+
+    # TODO
+
+    return "Great"
 
 plugin.run()

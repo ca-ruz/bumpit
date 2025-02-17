@@ -4,6 +4,7 @@ from pyln.testing.utils import sync_blockheight, FUNDAMOUNT, BITCOIND_CONFIG
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpchannelopen.py")}
 
+
 def test_bumpchannelopen(node_factory):
     # Set a low PeerThread interval so we can test quickly.
     opts = {'disable-plugin': "clnrest",
@@ -29,10 +30,8 @@ def test_bumpchannelopen(node_factory):
 
     txid = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT)['txid']
 
-
-
-
     print(f"DEBUG 1 get txid = {txid}")
+    print(f"DEBUG 1.5 FUNDAMOUNT = {FUNDAMOUNT}")
 
     funding_txid = l1.rpc.listfunds().get("channels", [])[0].get("funding_txid")
     print (f"DEBUG 2 get funding_txid = {funding_txid}")
@@ -42,10 +41,6 @@ def test_bumpchannelopen(node_factory):
 
     funding_vout = l1.rpc.listfunds().get("channels", [])[0].get("funding_output")
     print (f"DEBUG 3 get funding_vout = {funding_vout}")
-
-
-
-
 
     # A for loop to get all the output txids and vouts might be a better solution
 
@@ -61,8 +56,6 @@ def test_bumpchannelopen(node_factory):
     output_vout_2 = l1.rpc.listfunds().get("outputs", [])[1].get("output")
     print (f"DEBUG 7 get vout_output_vout_2 = {output_vout_2}")
 
-
-
     # Get the proper vout to pass in bumpchannelopen
     # Compare funding_txid with output_txid_1 and output_txid_2
     if funding_txid == output_txid_1:
@@ -74,8 +67,8 @@ def test_bumpchannelopen(node_factory):
 
     print(f"DEBUG 8 correct vout = {matching_vout}")
 
-
     fee_rate_passed = 5
+    print(f"DEBUG 9 fee_rate_passed = {fee_rate_passed}")
 
     # when
     s1 = l1.rpc.bumpchannelopen(
@@ -84,14 +77,22 @@ def test_bumpchannelopen(node_factory):
         fee_rate=fee_rate_passed,
         address=l1.rpc.newaddr()['bech32'],
     )
-    print(f"DEBUG 9 bumpchannelopen call = {s1}")
-
-    print(f"DEBUG 10 fee_rate_passed = {fee_rate_passed}")
+    print(f"DEBUG 10 bumpchannelopen call = {s1}")
 
     total_feerate = s1['total_feerate']
     print(f"DEBUG 11 total_feerate = {total_feerate}")
 
-    assert fee_rate_passed == total_feerate, f"total_feerate = {total_feerate} is not the same as the fee_rate = {fee_rate_passed} user passed in"
+    # fee_rate = int(total_feerate/4.38697)
+    # fee_rate = int(total_feerate/0.0004212)
+
+    # print(f"DEBUG 12 fee_rate after hidden math adjustment = {fee_rate}")
+
+    assert fee_rate_passed == total_feerate, f"total_feerate {total_feerate} != fee_rate {fee_rate_passed} user passed in,"
+
+    # fee_rate after adjustment = {fee_rate}"
+
+
+
 
 
 
