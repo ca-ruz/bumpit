@@ -149,8 +149,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     utxo_selector = [f"{selected_utxo['txid']}:{selected_utxo['output']}"]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
 
-
-
     try:
         # First time we call txprepare with 0 receiving amount
         rpc_result = plugin.rpc.txprepare(
@@ -186,8 +184,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     except Exception as e:
         plugin.log(f"[TANGO] General error occurred while withdrawing: {str(e)}")
         raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-
 
     # Emergency channel amount in sats, cln will create an output of this amount
     # as long as we subtract it from the recipient amount
@@ -232,7 +228,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     plugin.log(f"[XRAY] Contents of parent_fee_rate: {parent_fee_rate}")
     plugin.log(f"[YANKEE] Contents of parent_fee: {parent_fee}")
 
-
     # Second time we call txprepare
     try:
         second_rpc_result = plugin.rpc.txprepare(
@@ -255,27 +250,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         second_fee = second_new_psbt.get_fee()
         plugin.log(f"[ALPHA-CHARLIE] psbt second_fee: {second_fee}")
 
-        # TODO Uncommented for testing, maybe comment back till the next TODO
-
-        # plugin.rpc.unreserveinputs(
-        #     psbt=second_rpc_result.get("psbt"),
-        # )
-
-        # TODO
-
-        # plugin.rpc.unreserveinputs(
-        #     psbt=second_rpc_result.get("psbt"),
-        # )
-
-    #     # second_rpc_result = plugin.rpc.withdraw(
-    #     #     destination=address,
-    #     #     satoshi=recipient_amount,
-    #     #     feerate=fee_rate,
-    #     #     utxos=utxo_selector
-    #     # )
-
-        # plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
-
     except CPFPError as e:
         plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
         raise CPFPError("Error creating CPFP transaction.")
@@ -294,8 +268,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     # txid contains a new txid
     plugin.log(f"[ALPHA-HOTEL] txid variable contains this txid: {txid}")
     plugin.log(f"[ALPHA-INDIA] first_child variable contains this txid: {first_child}")
-
-    # plugin.log(f"Broadcasted CPFP transaction with txid: {txid}")
 
     try:
             first_signed_v2_psbt = plugin.rpc.signpsbt(
@@ -318,35 +290,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
             plugin.log(f"[ALPHA-FOXTROT] Contents of first_child_vsize: {first_child_vsize}")
             plugin.log(f"[ALPHA-GOLF] Contents of first_child_feerate: {first_child_feerate}")
 
-            # first_total_vsizes = parent_vsize + child_vsize
-            # plugin.log(f"Contents of total_vsizes: {total_vsizes}")
-            # first_total_fees = (parent_fee + child_fee) * 10**8  # Convert fees to satoshis if in BTC
-            # plugin.log(f"Contents of total_fees: {total_fees}")
-            # first_total_feerate = total_fees / total_vsizes
-            # plugin.log(f"Contents of total_feerate: {total_feerate}")
-
-            # plugin.log(f"Signed PSBT (v2): {signed_v2_psbt}")
-            # plugin.log(f"Signed PSBT (v0): {signed_v0_psbt}")
-
-
-            # TODO maybe uncomment this again? just did it because it seems to be breaking the plugin since the next time we try
-            # get an error message saying that the UTXO is not reserved, til the next TODO
-
-            # plugin.rpc.unreserveinputs(
-            #     psbt=rpc_result.get("psbt"),
-            # )
-
-            # TODO
-
-        #     # second_rpc_result = plugin.rpc.withdraw(
-        #     #     destination=address,
-        #     #     satoshi=recipient_amount,
-        #     #     feerate=fee_rate,
-        #     #     utxos=utxo_selector
-        #     # )
-
-            # plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
-
     except CPFPError as e:
         plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
         raise CPFPError("Error creating CPFP transaction.")
@@ -357,7 +300,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
         raise CPFPError(f"Error while withdrawing funds: {str(e)}")
 
-
     second_child_txid = second_rpc_result.get("txid")
     second_psbt = second_rpc_result.get("psbt")
     second_signed_psbt = ""
@@ -365,10 +307,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     # txid contains a new txid    
     plugin.log(f"[ALPHA-HOTEL] txid variable contains this txid: {txid}")
     plugin.log(f"[ALPHA-INDIA] first_child variable contains this txid: {first_child}")
-
-    # plugin.log(f"Broadcasted CPFP transaction with txid: {txid}")
-
-    # TODO Uncomment this part of the code til the next TODO
 
     try:
         second_signed_v2_psbt = plugin.rpc.signpsbt(
@@ -391,16 +329,17 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         plugin.log(f"[ALPHA-NOVEMBER] Contents of second_child_vsize: {second_child_vsize}")
         plugin.log(f"[ALPHA-OSCAR] Contents of second_child_feerate: {second_child_feerate}")
 
-        # TODO Maybe uncomment this later, till the next TODO
-
-
-        # TODO
-
         plugin.rpc.unreserveinputs(
             psbt=second_rpc_result.get("psbt"),
         )
 
-        child_fee = calculate_child_fee(parent_fee, parent_vsize, second_child_vsize, fee_rate)
+        child_fee = calculate_child_fee(
+            parent_fee,
+            parent_vsize,
+            second_child_vsize, 
+            fee_rate
+        )
+        
         print(f"Child transaction fee: {child_fee} satoshis")
         plugin.log(f"[ALPHA-PAPA] line 547: child_fee variable contains: {child_fee}")
 
@@ -430,65 +369,26 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
         raise CPFPError(f"Error while withdrawing funds: {str(e)}")
 
-
-
-
-    # total_fee_rate = parent_fee_rate + child_fee_rate
-    # plugin.log(f"line 553: total_fee_rate variable contains: {total_fee_rate}")
-
-    # TODO
-
-    # child_v0_psbt = signed_v0_psbt.get("psbt")
-    # psbt_v0 = "'" + child_v0_psbt + "'"
-    # psbt_v2 = signed_v2_psbt.get("signed_psbt")
-
-    # TODO Uncomment this next bit till the next TODO
-
-    # Prepare the final response
+    # Convert all values to JSON-serializable types
     response = {
         "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
         "the details before broadcasting the transaction",
-        "finalize command": f'copy/paste this: bitcoin-cli finalizepsbt {second_psbt_v0} ',
-        "analyze command": f'copy/paste this: bitcoin-cli analyzepsbt {second_psbt_v0} ',
-        "signed_v2_psbt": second_psbt_v2,
-        # "total_vsizes": total_vsizes,
-        # "total_fees": total_fees,
-        # "total_feerate": total_feerate
+        "finalize_command": f'bitcoin-cli finalizepsbt {second_psbt_v0}',
+        "analyze_command": f'bitcoin-cli analyzepsbt {second_psbt_v0}',
+        "signed_psbt": str(second_psbt_v2),  # Convert to string
+        "parent_fee": int(parent_fee),  # Add parent fee
+        "parent_vsize": int(parent_vsize),  # Add parent vsize
+        "parent_feerate": float(parent_fee_rate),  # Convert to float
+        "child_fee": int(child_fee),  # Add child fee
+        "child_vsize": int(second_child_vsize),  # Add child vsize
+        "child_feerate": float(child_fee_rate),  # Convert to float
+        "total_fees": int(total_fees),  # Convert to int
+        "total_vsizes": int(total_vsizes),  # Convert to int
+        "total_feerate": float(total_feerate),  # Convert to float
     }
-
-    # TODO
 
     plugin.log(f"[BRAVO-ALPHA] line 556: txid variable contains this txid: {txid}")
     plugin.log(f"[BRAVO-BRAVO] line 557: second_child_txid variable contains this txid: {second_child_txid}")
-
- 
-
-
-
-
-
-    # Update the dictionary with new key-value pairs & Convert non-serializable objects to serializable formats
-    response.update({
-        "total_vsizes": int(total_vsizes) if total_vsizes is not None else 0,
-        "total_fees": int(total_fees) if total_fees is not None else 0,
-        "total_feerate": float(total_feerate) if total_feerate is not None else 0.0
-    })
-
-
-
-    # # Prepare the final response
-    # response = {
-    #     "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
-    #     "the details before broadcasting the transaction",
-    #     "finalize command": f'copy/paste this: bitcoin-cli finalizepsbt {psbt_v0} ',
-    #     "analyze command": f'copy/paste this: bitcoin-cli analyzepsbt {psbt_v0} ',
-    #     "signed_v2_psbt": psbt_v2,
-    #     "total_vsizes": total_vsizes,
-    #     "total_fees": total_fees,
-    #     "total_feerate": total_feerate
-    # }
-
-    # TODO Uncomment this next bit out till the next TODO to replace the return
 
     return response
 
