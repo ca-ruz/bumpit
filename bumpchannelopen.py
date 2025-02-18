@@ -67,10 +67,16 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
     :param desired_total_feerate: Desired total feerate (in sat/vB).
     :return: The required child transaction fee (in satoshis).
     """
+    # Calculate the total required fee for both transactions combined
     total_vsize = parent_vsize + child_vsize
-    total_fee = desired_total_feerate * total_vsize
-    child_fee = total_fee - parent_fee
-    return max(0, int(child_fee))  # Ensure non-negative fee
+    required_total_fee = int(desired_total_feerate * total_vsize)
+    
+    # Calculate how much the child needs to pay to achieve the desired total feerate
+    child_fee = required_total_fee - parent_fee
+    
+    # Ensure the child fee is at least enough to meet minimum relay fee
+    minimum_child_fee = int(child_vsize * 1.0)  # 1.0 sat/vB minimum relay fee
+    return max(child_fee, minimum_child_fee)
 
 
 @plugin.method("bumpchannelopen")
@@ -224,6 +230,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     plugin.log(f"Contents of parent_vsize: {parent_vsize}")
     parent_fee_rate = (parent_fee * 10**8) / parent_vsize  # sat/vB
     plugin.log(f"Contents of parent_fee_rate: {parent_fee_rate}")
+    plugin.log(f"Contents of parent_fee: {parent_fee}")
 
 
     # Second time we call txprepare
@@ -386,15 +393,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
         # TODO Maybe uncomment this later, till the next TODO
 
-        total_vsizes = parent_vsize + second_child_vsize
-        plugin.log(f"Contents of total_vsizes: {total_vsizes}")
-        total_fees = (parent_fee + second_child_fee) * 10**8  # Convert fees to satoshis if in BTC
-        plugin.log(f"Contents of total_fees: {total_fees}")
-        total_feerate = total_fees / total_vsizes
-        plugin.log(f"Contents of total_feerate: {total_feerate}")
-
-        plugin.log(f"Signed PSBT (v2): {second_signed_v2_psbt}")
-        plugin.log(f"Signed PSBT (v0): {second_signed_v0_psbt}")
 
         # TODO
 
@@ -402,15 +400,24 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
             psbt=second_rpc_result.get("psbt"),
         )
 
-        # second_rpc_result = plugin.rpc.withdraw(
-        #     destination=address,
-        #     satoshi=recipient_amount,
-        #     feerate=fee_rate,
-        #     utxos=utxo_selector
-        # )
+        child_fee = calculate_child_fee(parent_fee, parent_vsize, second_child_vsize, fee_rate)
+        print(f"Child transaction fee: {child_fee} satoshis")
+        plugin.log(f"line 547: child_fee variable contains: {child_fee}")
+
+        child_fee_rate = child_fee / second_child_vsize  # sat/vB
+        plugin.log(f"line 438: child_fee_rate variable contains: {child_fee_rate}")
 
         plugin.log(f"second_rpc_result: {json.dumps(second_rpc_result, indent=4)}")  # Log the full result
 
+        total_vsizes = parent_vsize + second_child_vsize
+        plugin.log(f"Contents of total_vsizes: {total_vsizes}")
+        total_fees = (parent_fee * 10**8 + child_fee)  # Convert fees to satoshis if in BTC
+        plugin.log(f"Contents of total_fees: {total_fees}")
+        total_feerate = total_fees / total_vsizes
+        plugin.log(f"Contents of total_feerate: {total_feerate}")
+
+        plugin.log(f"Signed PSBT (v2): {second_signed_v2_psbt}")
+        plugin.log(f"Signed PSBT (v0): {second_signed_v0_psbt}")
     except CPFPError as e:
         plugin.log(f"CPFPError occurred: {str(e)}")
         raise CPFPError("Error creating CPFP transaction.")
@@ -423,12 +430,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
 
 
-    child_fee = calculate_child_fee(parent_fee, parent_vsize, second_child_vsize, fee_rate)
-    print(f"Child transaction fee: {child_fee} satoshis")
-    plugin.log(f"line 547: child_fee variable contains: {child_fee}")
-
-    child_fee_rate = child_fee / second_child_vsize  # sat/vB
-    plugin.log(f"line 550: child_fee_rate variable contains: {child_fee_rate}")
 
     # total_fee_rate = parent_fee_rate + child_fee_rate
     # plugin.log(f"line 553: total_fee_rate variable contains: {total_fee_rate}")
@@ -488,10 +489,5 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     # TODO Uncomment this next bit out till the next TODO to replace the return
 
     return response
-
-    except Exception as e:
-        plugin.log(f"Error creating CPFP transaction: {str(e)}")
-        raise CPFPError(f"Failed to create CPFP transaction: {str(e)}")
-
 
 plugin.run()
