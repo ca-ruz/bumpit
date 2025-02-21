@@ -4,107 +4,74 @@ from pyln.testing.utils import sync_blockheight, FUNDAMOUNT, BITCOIND_CONFIG
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpchannelopen.py")}
 
+FUNDAMOUNT = 1000000  # Match the manual test amount of 1M sats
 
 def test_bumpchannelopen(node_factory):
-    # Set a low PeerThread interval so we can test quickly.
-    opts = {'disable-plugin': "clnrest",
-            'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
-            'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
-            'bump_brpc_port': BITCOIND_CONFIG["rpcport"]
-        }
+    # Basic setup
+    opts = {
+        'disable-plugin': "clnrest",
+        'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
+        'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
+        'bump_brpc_port': BITCOIND_CONFIG["rpcport"]
+    }
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
-    l2id = l2.info['id']
-
-    nodes = [l1,l2]
-
+    
+    # Connect nodes and create channel
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
-
     bitcoind = l1.bitcoin
-    # If we got here, we want to fund channels
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, (FUNDAMOUNT + 1000000) / 10**8)
-
+    bitcoind.rpc.sendtoaddress(addr, 1)
     bitcoind.generate_block(1)
-    sync_blockheight(bitcoind, nodes)
+    sync_blockheight(bitcoind, [l1, l2])
+    
+    # Create the funding transaction
+    funding = l1.rpc.fundchannel(l2.info['id'], 1000000, 3000)
+    funding_txid = funding['txid']
+    print(f"Funding tx id after funding channel: {funding_txid}")
 
-    txid = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT)['txid']
+    funding_txid_details = bitcoind.rpc.getrawtransaction(funding_txid)
+    # funding_txid_details = bitcoind.rpc.decoderawtransaction(funding_txid)
+    print(f"Funding txid details: {funding_txid_details}")
+    
+    # Find the change output using listfunds
+    outputs = l1.rpc.listfunds()['outputs']
+    change_output = None
+    for output in outputs:
+        if output['txid'] == funding_txid and not output['reserved']:
+            change_output = output
+            break
+    
+    assert change_output is not None, "Could not find unreserved change output"
 
-    print(f"DEBUG 1 get txid = {txid}")
-    print(f"DEBUG 1.5 FUNDAMOUNT = {FUNDAMOUNT}")
-
-    funding_txid = l1.rpc.listfunds().get("channels", [])[0].get("funding_txid")
-    print (f"DEBUG 2 get funding_txid = {funding_txid}")
-
-    listfunds_result=l1.rpc.listfunds()
-    print(f"DEBUG 2.5 get listfunds_result= {listfunds_result}")
-
-    funding_vout = l1.rpc.listfunds().get("channels", [])[0].get("funding_output")
-    print (f"DEBUG 3 get funding_vout = {funding_vout}")
-
-    # A for loop to get all the output txids and vouts might be a better solution
-
-    output_txid_1 = l1.rpc.listfunds().get("outputs", [])[0].get("txid")
-    print (f"DEBUG 4 get output_txid_1 = {output_txid_1}")
-
-    output_vout_1 = l1.rpc.listfunds().get("outputs", [])[0].get("output")
-    print (f"DEBUG 5 get output_vout_1 = {output_vout_1}")
-
-    output_txid_2 = l1.rpc.listfunds().get("outputs", [])[1].get("txid")
-    print (f"DEBUG 6 get utput_txid_2 = {output_txid_2}")
-
-    output_vout_2 = l1.rpc.listfunds().get("outputs", [])[1].get("output")
-    print (f"DEBUG 7 get vout_output_vout_2 = {output_vout_2}")
-
-    # Get the proper vout to pass in bumpchannelopen
-    # Compare funding_txid with output_txid_1 and output_txid_2
-    if funding_txid == output_txid_1:
-        matching_vout = output_vout_1
-    elif funding_txid == output_txid_2:
-        matching_vout = output_vout_2
-    else:
-        matching_vout = None  # Handle case where no match is found
-
-    print(f"DEBUG 8 correct vout = {matching_vout}")
-
-    fee_rate_passed = 5
-    print(f"DEBUG 9 fee_rate_passed = {fee_rate_passed}")
-
-    # when
-    s1 = l1.rpc.bumpchannelopen(
+    # Call bumpchannelopen
+    target_feerate = 10
+    result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
-        vout=matching_vout,
-        fee_rate=fee_rate_passed,
-        address=l1.rpc.newaddr()['bech32'],
+        vout=change_output['output'],
+        fee_rate=target_feerate,
+        address=l1.rpc.newaddr()['bech32']
     )
-    print(f"DEBUG 10 bumpchannelopen call = {s1}")
 
-    total_feerate = s1['total_feerate']
-    print(f"DEBUG 11 total_feerate = {total_feerate}")
+    # Debug: print the result to see what keys are available
+    print("Result keys:", result.keys())
 
-    # fee_rate = int(total_feerate/4.38697)
-    # fee_rate = int(total_feerate/0.0004212)
+    # Extract fees and sizes from the plugin result
+    parent_fee_sats = result.get('parent_fee', 0)
+    child_fee_sats = result.get('child_fee', 0)
+    total_fee_sats = result.get('total_fees', 0)
+    parent_vsize = result.get('parent_vsize', 0)
+    child_vsize = result.get('child_vsize', 0)
+    total_vsize = result.get('total_vsizes', 0)
 
-    # print(f"DEBUG 12 fee_rate after hidden math adjustment = {fee_rate}")
+    # Print debug info
+    print(f"Parent transaction details: txid={result['parent_txid']}, fee={parent_fee_sats}, vsize={parent_vsize}")
+    print(f"Child transaction details: txid={result['child_txid']}, fee={child_fee_sats}, vsize={child_vsize}")
+    print(f"Package details: total fees={total_fee_sats}, total vsizes={total_vsize}")
 
-    assert fee_rate_passed == total_feerate, f"total_feerate {total_feerate} != fee_rate {fee_rate_passed} user passed in,"
+    # Assertions
+    assert child_fee_sats > 0, "Child fee should be positive"
+    total_feerate = total_fee_sats / total_vsize if total_vsize > 0 else 0
+    assert total_feerate == target_feerate, f"Total feerate should be {target_feerate}, got {total_feerate}"
 
-    # fee_rate after adjustment = {fee_rate}"
-
-
-
-
-
-
-
-    # l2.stop()  # we stop l2 and wait for l1 to see that
-    # l1.daemon.wait_for_log(f".*{l2id}.*Peer connection lost.*")
-    # wait_for(lambda: l1.rpc.listpeers(l2id)['peers'][0]['connected'] is False)
-    # l1.daemon.wait_for_log("Peerstate wrote to datastore")
-    # s2 = l1.rpc.bumpchannelopen()
-
-    # # then
-    # avail1 = int(re.search(' ([0-9]*)% ', s1['channels'][2]).group(1))
-    # avail2 = int(re.search(' ([0-9]*)% ', s2['channels'][2]).group(1))
-    # assert(avail1 == 100)
-    # assert(avail2 > 0 and avail2 < avail1)
+    # Additional debugging output as needed

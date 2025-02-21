@@ -75,7 +75,7 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
     child_fee = required_total_fee - parent_fee
     
     # Ensure the child fee is at least enough to meet minimum relay fee
-    return max(child_fee, 0)
+    return child_fee
 
 
 @plugin.method("bumpchannelopen")
@@ -106,44 +106,69 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
     # Step 2: Get list of available UTXOs from the Lightning node
     funds = plugin.rpc.listfunds()
+    plugin.log(f"[INFO] Funds retrieved: {funds}")  # Log the entire funds response at INFO level
+
+    # Check if 'outputs' key exists and log its contents
     utxos = funds.get("outputs", [])
     if not utxos:
         raise CPFPError("No unspent transaction outputs found.")
 
-    plugin.log("[ECHO] Available UTXOs:")
-    for idx, utxo in enumerate(utxos):
-        plugin.log(f"[FOXTROT] {idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat")
+    # Log all UTXOs before filtering (optional, can be removed for cleaner logs)
+    # plugin.log("[DEBUG] All UTXOs before filtering:")
+    # for idx, utxo in enumerate(utxos):
+    #     reserved_status = utxo.get("reserved", False)
+    #     plugin.log(f"[DEBUG] UTXO {idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat, reserved={reserved_status}")
 
+    # Filter out reserved UTXOs
+    available_utxos = [utxo for utxo in utxos if not utxo.get("reserved", False)]
+
+    # Log available UTXOs after filtering
+    plugin.log("[INFO] Available UTXOs after filtering:")
+    
+    # Add the specific log message you requested
+    plugin.log("[ECHO] Available UTXOs after filtering:")
+    if not available_utxos:
+        plugin.log("[ECHO] No unreserved UTXOs available.")
+    else:
+        for idx, utxo in enumerate(available_utxos):
+            plugin.log(f"[FOXTROT] {idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat")
+
+    # Log the count of available UTXOs
+    plugin.log(f"[DEBUG] Count of available UTXOs: {len(available_utxos)}")
+
+    # Check if available UTXOs are being logged correctly
+    if available_utxos:
+        plugin.log(f"[DEBUG] Available UTXOs contents: {available_utxos}")
+
+    if not available_utxos:
+        raise CPFPError("No unreserved unspent transaction outputs found.")
+
+    # Proceed with selecting a UTXO
+    selected_utxo = None
+    for utxo in available_utxos:
+        if utxo["txid"] == txid and utxo["output"] == vout:
+            selected_utxo = utxo
+            break
+
+    if not selected_utxo:
+        raise CPFPError(f"UTXO {txid}:{vout} not found in available UTXOs.")
+
+    # Log the selected UTXO
+    plugin.log(f"[DEBUG] Selected UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}, amount={selected_utxo['amount_msat']} msat")
 
     # Step 3: Calculate the total amount of confirmed and unreserved outputs
     total_sats = calculate_confirmed_unreserved_amount(funds)
     plugin.log(f"[GOLF] Total amount in confirmed and unreserved outputs: {total_sats} sats")
 
-    # Step 4: Try to select an available, unreserved UTXO
-    selected_utxo = None
-    for utxo in utxos:
-        if utxo["txid"] == txid and utxo["output"] == vout:
-            if utxo.get("reserved", False):
-                raise CPFPError(f"Selected utxo {txid}:{vout} is reserved.")
-            else:
-                selected_utxo = utxo
-                break
-
-    if not selected_utxo:
-        raise CPFPError(f"UTXO {txid}:{vout} not found.")
-    plugin.log(f"[HOTEL] Selected UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}")
-    plugin.log(f"[INDIA] Contents of selected_utxo: {selected_utxo}")
-
-    # Step 5: Fetch UTXO details and convert amount
+    # Step 4: Fetch UTXO details and convert amount
     amount_msat = selected_utxo["amount_msat"]
     if not amount_msat:
         raise CPFPError(f"UTXO {txid}:{vout} not found or already spent.")
-    plugin.log(f"[JULIET] amount_msat type: {type(amount_msat)}, value: {amount_msat}")
 
-    plugin.log(f"[KILO] txid variable contains this txid: {txid}")
-
+    # Log the amount in msat and convert to sats
     amount = amount_msat // 1000  # Convert msat to satoshis
-    plugin.log(f"[LIMA] Fetched UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}, amount={amount} sats")
+    plugin.log(f"[DEBUG] Amount in sats: {amount} sats")
+
 
     # Step 6: Use `txprepare` to create and broadcast the transaction
     utxo_selector = [f"{selected_utxo['txid']}:{selected_utxo['output']}"]
@@ -385,6 +410,10 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         "total_fees": int(total_fees),  # Convert to int
         "total_vsizes": int(total_vsizes),  # Convert to int
         "total_feerate": float(total_feerate),  # Convert to float
+        "parent_psbt": plugin.rpc.setpsbtversion(psbt=first_psbt, version=0)['psbt'],
+        "child_psbt": second_child_v0_psbt,
+        "parent_txid": txid,
+        "child_txid": second_child_txid
     }
 
     plugin.log(f"[BRAVO-ALPHA] line 556: txid variable contains this txid: {txid}")
