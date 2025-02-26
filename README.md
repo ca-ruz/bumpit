@@ -11,7 +11,6 @@ A Core Lightning plugin to create CPFP (Child Pays For Parent) transactions for 
 ## Installation
 
 1. Clone the repository:
-
 ```bash
 git clone https://github.com/yourusername/bumpchannelopen.git
 cd bumpchannelopen
@@ -34,16 +33,15 @@ pip install -r requirements-dev.txt
 
 ## Running Tests
 
-The test suite uses Core Lightning's test framework and requires a regtest environment. You need to run the following commands inside of the plugin directory.
+The test suite uses Core Lightning's test framework and requires a regtest environment.
+You need to run the following commands inside of the plugin directory.
 
 1. To run all tests:
-
 ```bash
 pytest -vs
 ```
 
 2. To run an individual test:
-
 ```bash
 pytest -vs <name_of_the_test_file.py>
 ```
