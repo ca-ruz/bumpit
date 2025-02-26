@@ -34,17 +34,15 @@ pip install -r requirements-dev.txt
 
 ## Running Tests
 
-The test suite uses Core Lightning's test framework and requires a regtest environment.
+The test suite uses Core Lightning's test framework and requires a regtest environment. You need to run the following commands inside of the plugin directory.
 
-You need to run the following commands inside of the plugin directory.
-
-To run all tests:
+1. To run all tests:
 
 ```bash
 pytest -vs
 ```
 
-To run an individual test:
+2. To run an individual test:
 
 ```bash
 pytest -vs <name_of_the_test_file.py>
