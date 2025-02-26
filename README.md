@@ -36,8 +36,18 @@ pip install -r requirements-dev.txt
 
 The test suite uses Core Lightning's test framework and requires a regtest environment.
 
+You need to run the following commands inside of the plugin directory.
+
+To run all tests:
+
 ```bash
-pytest test_bumpchannelopen.py
+pytest -vs
+```
+
+To run an individual test:
+
+```bash
+pytest -vs <name_of_the_test_file.py>
 ```
 
 ## Manual Testing in Regtest

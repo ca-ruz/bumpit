@@ -9,7 +9,6 @@ FUNDAMOUNT = 1000000  # Match the manual test amount of 1M sats
 def test_bumpchannelopen(node_factory):
     # Basic setup
     opts = {
-        'disable-plugin': "clnrest",
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
         'bump_brpc_port': BITCOIND_CONFIG["rpcport"]
@@ -26,7 +25,7 @@ def test_bumpchannelopen(node_factory):
     sync_blockheight(bitcoind, [l1, l2])
     
     # Create the funding transaction
-    funding = l1.rpc.fundchannel(l2.info['id'], 1000000, 100000)
+    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, 100000)
     funding_txid = funding['txid']
     print(f"Funding tx id after funding channel: {funding_txid}")
 
