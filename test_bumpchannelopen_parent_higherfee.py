@@ -69,7 +69,11 @@ def test_bumpchannelopen(node_factory):
     print(f"Package details: total fees={total_fee_sats}, total vsizes={total_vsize}")
 
     # Assertions
-    assert child_fee_sats > 0, "Child fee should be positive"
+    if parent_fee_sats > 0 and child_fee_sats < 0:
+        print("Parent fee is high enough, no need for cpfp")
+    else:
+        assert child_fee_sats > 0, "Child fee should be positive"
+    
     total_feerate = total_fee_sats / total_vsize if total_vsize > 0 else 0
     assert total_feerate == target_feerate, f"Total feerate should be {target_feerate}, got {total_feerate}"
 
