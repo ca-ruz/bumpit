@@ -170,113 +170,81 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         raise CPFPError(f"UTXO {txid}:{vout} not found or already spent.")
 
     # Log the amount in msat and convert to sats
-    amount = amount_msat // 1000  # Convert msat to satoshis
+    amount = amount_msat / 100_000_000_000  # Convert msat to BTC
     plugin.log(f"[DEBUG] Amount in sats: {amount} sats")
 
+    # Get all addresses associated with the node
+    listaddresses_result = plugin.rpc.listaddresses()
 
-    # Step 6: Use `txprepare` to create and broadcast the transaction
-    utxo_selector = [f"{selected_utxo['txid']}:{selected_utxo['output']}"]
+    # Debug log to inspect the returned addresses
+    plugin.log(f"[DEBUG] listaddresses result: {listaddresses_result}")
+
+    # Extract bech32 and p2tr addresses from the result
+    valid_addresses = [
+        entry[key] for entry in listaddresses_result.get("addresses", [])
+        for key in ("bech32", "p2tr") if key in entry
+    ]
+
+    # Verify that the recipient address is in the list
+    if address not in valid_addresses:
+        plugin.log(f"[ERROR] Address {address} is not owned by this node.", level="error")
+        return {"error": f"Recipient address {address} is not owned by this node"}
+
+    plugin.log(f"[INFO] Address {address} is valid and owned by this node.")
+
+    # Step 6: Use bitcoin rpc call `createpsbt` to create the partially signed bitcoin transaction and get the vsize
+    utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
 
     try:
-        # First time we call txprepare with 0 receiving amount
-        rpc_result = plugin.rpc.txprepare(
-            outputs=[{address: 0}],
-            utxos=utxo_selector,
-            #feerate=10000
-        )
-
-
-
-        plugin.log(f"[NOVEMBER] rpc_result: {rpc_result}")
-
-        v0_psbt = plugin.rpc.setpsbtversion(
-            psbt=rpc_result.get("psbt"),
-            version=0
-        )
-        plugin.log(f"[PAPA] v0_psbt: {v0_psbt}")
-
-        new_psbt= PartiallySignedTransaction.from_base64(v0_psbt.get("psbt"))
-
-        # First child transation fee
-        fee = new_psbt.get_fee()
-        plugin.log(f"[QUEBEC] psbt first_child fee: {fee}")
-
-
-
+        # Connect to bitcoin-cli
         rpc_connection = connect_bitcoincli(
             rpc_user=plugin.get_option('bump_brpc_user'),
             rpc_password=plugin.get_option('bump_brpc_pass'),
             port=plugin.get_option('bump_brpc_port')
         )
 
-        # Step 9: Log and return the transaction details
-        first_child = rpc_result.get("txid")
-        first_psbt = rpc_result.get("psbt")
-        first_signed_v2_psbt = ""
+        plugin.log(f"[ALPHA-WHISKEY] Contents of rpc_connection: {rpc_connection}")
 
-        # txid contains a txid passed in by the user as an argument when calling the method
-        plugin.log(f"[ALPHA-HOTEL] txid variable contains this txid: {txid}")
-        plugin.log(f"[ALPHA-INDIA] first_child variable contains this txid: {first_child}")
-
-        try:
-            first_signed_v2_psbt = plugin.rpc.signpsbt(
-                psbt=first_psbt
-            )
-
-            first_signed_v0_psbt = plugin.rpc.setpsbtversion(
-                psbt=first_signed_v2_psbt.get("signed_psbt"),
-                version=0
-            )
-
-            first_child_v0_psbt = first_signed_v0_psbt.get("psbt")
-
-            # Variable not in use first_child_v2_psbt
-            first_child_v2_psbt = first_signed_v2_psbt.get("signed_psbt")
-
-            first_child_analyzed = rpc_connection.analyzepsbt(first_child_v0_psbt)
-            first_child_fee = first_child_analyzed["fee"]
-            first_child_vsize = first_child_analyzed["estimated_vsize"]
-            first_child_feerate = first_child_analyzed["estimated_feerate"]
-            plugin.log(f"[ALPHA-ECHO] Contents of first_child_fee: {first_child_fee}")
-            plugin.log(f"[ALPHA-FOXTROT] Contents of first_child_vsize: {first_child_vsize}")
-            plugin.log(f"[ALPHA-GOLF] Contents of first_child_feerate: {first_child_feerate}")
-
-        except CPFPError as e:
-            plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-            raise CPFPError("Error creating CPFP transaction.")
-        except RpcError as e:
-            plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-            raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-        except Exception as e:
-            plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-            raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-        
-
-        plugin.rpc.unreserveinputs(
-            psbt=rpc_result.get("psbt"),
+        # Create PSBT
+        rpc_result = rpc_connection.createpsbt(
+            utxo_selector,  # List of dictionaries
+            [{address: amount}]  # Outputs as list of dictionaries
         )
+        plugin.log(f"[NOVEMBER] Contents of rpc_result: {rpc_result}")
+
+        # Load PSBT into python-bitcoinlib
+        new_psbt = PartiallySignedTransaction.from_base64(rpc_result)
+        plugin.log(f"[QUEBEC] Contents of new_psbt: {new_psbt}")
+
+        # Update PSBT with missing UTXO data
+        updated_psbt = rpc_connection.utxoupdatepsbt(rpc_result)
+        plugin.log(f"[DELTA] Updated PSBT: {updated_psbt}")
+
+        # Analyze PSBT after updating it
+        first_child_analyzed = rpc_connection.analyzepsbt(updated_psbt)
+        plugin.log(f"[ALPHA-HOTEL0.5] first_child_analyzed variable contains: {first_child_analyzed}")
+
+        # Step 9: Log and return the transaction details
+        first_psbt = updated_psbt  # The latest PSBT in base64 format
+        first_child_vsize = first_child_analyzed.get("estimated_vsize")
+        first_child_feerate = first_child_analyzed.get("estimated_feerate")
+        first_child_fee = first_child_analyzed.get("fee")
+
+        plugin.log(f"[TRANSACTION DETAILS] PSBT: {first_psbt}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated vsize: {first_child_vsize}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated feerate: {first_child_feerate}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated fee: {first_child_fee}")
 
     except CPFPError as e:
         plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
         raise CPFPError("Error creating CPFP transaction.")
     except RpcError as e:
         plugin.log(f"[SIERRA] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+        raise RpcError(f"RPC Error while withdrawing funds: {str(e)}")
     except Exception as e:
-        plugin.log(f"[TANGO] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-
-    rpc_connection = connect_bitcoincli(
-        rpc_user=plugin.get_option('bump_brpc_user'),
-        rpc_password=plugin.get_option('bump_brpc_pass'),
-        port=plugin.get_option('bump_brpc_port')
-    )
-
-
-
+        plugin.log(f"[TANGO] General error occurred: {str(e)}")
+        raise Exception(f"Error occurred: {str(e)}")
 
     # Get parent's tx info
 
@@ -284,8 +252,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
     tx = rpc_connection.getrawtransaction(txid, True)
     plugin.log(f"[TANGO - WHISKEY] Contents tx: {tx}")
-
-
 
     # Calculate total inputs
     total_inputs = 0
@@ -314,13 +280,146 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     parent_fee_rate = parent_fee / parent_vsize  # sat/vB
     plugin.log(f"[YANKEE] Contents of parent_fee_rate: {parent_fee_rate}")
 
+    # Calculate the child's fee
+    desired_child_fee = calculate_child_fee(
+        parent_fee,
+        parent_vsize,
+        first_child_vsize, 
+        fee_rate
+    )
 
-    # desired_child_fee = calculate_child_fee(
-    #     parent_fee,
-    #     parent_vsize,
-    #     first_child_vsize, 
-    #     fee_rate
-    # )
+    plugin.log(f"[YANKEE1.5] Contents of desired_child_fee: {desired_child_fee}")
+
+    recipient_amount = amount - (float(desired_child_fee) / 10**8) # Subtract manually estimated fees, all should be in BTC
+    plugin.log(f"[UNIFORM] amount: {amount}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
+
+    # Step 6: Use bitcoin rpc call `createpsbt` a second time using the amount - the child's_fee
+
+    try:
+        # Connect to bitcoin-cli
+        rpc_connection = connect_bitcoincli(
+            rpc_user=plugin.get_option('bump_brpc_user'),
+            rpc_password=plugin.get_option('bump_brpc_pass'),
+            port=plugin.get_option('bump_brpc_port')
+        )
+
+        plugin.log(f"[ALPHA-WHISKEY] Contents of rpc_connection: {rpc_connection}")
+
+        # Create PSBT
+        rpc_result2 = rpc_connection.createpsbt(
+            utxo_selector,  # List of dictionaries
+            [{address: recipient_amount}]  # Outputs as list of dictionaries
+        )
+        plugin.log(f"[NOVEMBER] Contents of rpc_result2: {rpc_result2}")
+
+        # Load PSBT into python-bitcoinlib
+        new_psbt2 = PartiallySignedTransaction.from_base64(rpc_result2)
+        plugin.log(f"[QUEBEC] Contents of new_psbt2: {new_psbt2}")
+
+        # Update PSBT with missing UTXO data
+        updated_psbt2 = rpc_connection.utxoupdatepsbt(rpc_result2)
+        plugin.log(f"[DELTA] Updated PSBT2: {updated_psbt2}")
+
+        # Analyze PSBT after updating it
+        second_child_analyzed = rpc_connection.analyzepsbt(updated_psbt2)
+        plugin.log(f"[ALPHA-HOTEL0.5] second_child_analyzed variable contains: {second_child_analyzed}")
+
+        # Step 9: Log and return the transaction details
+        second_psbt = updated_psbt2  # The latest PSBT in base64 format
+        second_child_vsize = second_child_analyzed.get("estimated_vsize")
+        second_child_feerate = second_child_analyzed.get("estimated_feerate")
+        second_child_fee = second_child_analyzed.get("fee")
+
+        plugin.log(f"[TRANSACTION DETAILS] PSBT: {second_psbt}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated vsize: {second_child_vsize}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated feerate: {second_child_feerate}")
+        plugin.log(f"[TRANSACTION DETAILS] Estimated fee: {second_child_fee}")
+
+    except CPFPError as e:
+        plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
+        raise CPFPError("Error creating CPFP transaction.")
+    except RpcError as e:
+        plugin.log(f"[SIERRA] RPC Error during withdrawal: {str(e)}")
+        raise RpcError(f"RPC Error while withdrawing funds: {str(e)}")
+    except Exception as e:
+        plugin.log(f"[TANGO] General error occurred: {str(e)}")
+        raise Exception(f"Error occurred: {str(e)}")
+
+    try:
+
+        # Connect to bitcoin-cli
+        rpc_connection = connect_bitcoincli(
+            rpc_user=plugin.get_option('bump_brpc_user'),
+            rpc_password=plugin.get_option('bump_brpc_pass'),
+            port=plugin.get_option('bump_brpc_port')
+        )
+
+        # Reserve the UTXO before signing
+        plugin.rpc.reserveinputs(psbt=second_psbt)
+
+        # Sign the PSBT
+        second_signed_psbt = plugin.rpc.signpsbt(psbt=second_psbt)
+
+        # Extract the signed PSBT
+        second_child_psbt = second_signed_psbt.get("signed_psbt")
+
+        if not second_child_psbt:
+            raise CPFPError("Signing failed. No signed PSBT returned.")
+
+        plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
+
+        # Finalize the PSBT but do NOT extract yet
+        finalized_psbt = rpc_connection.finalizepsbt(second_child_psbt, False)
+        plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
+
+        finalized_psbt_base64 = finalized_psbt.get("psbt")
+        if not finalized_psbt_base64:
+            raise CPFPError("PSBT was not properly finalized. No PSBT hex returned.")
+
+        # Log the raw PSBT for inspection
+        plugin.log(f"[DEBUG] Finalized PSBT (base64: {finalized_psbt_base64}")
+
+        # Analyze the finalized PSBT
+        signed_child_analyzed = rpc_connection.analyzepsbt(finalized_psbt_base64)
+
+        plugin.log(f"[DEBUG] signed_child_analyzed after finalization: {signed_child_analyzed}")
+
+        signed_child_fee = signed_child_analyzed.get("fee", "Not available")
+        signed_child_vsize = signed_child_analyzed.get("estimated_vsize", "Not available")
+        signed_child_feerate = signed_child_analyzed.get("estimated_feerate", "Not available")
+
+        plugin.log(f"[ALPHA-ECHO] Contents of signed_child_fee: {signed_child_fee}")
+        plugin.log(f"[ALPHA-FOXTROT] Contents of signed_child_vsize: {signed_child_vsize}")
+        plugin.log(f"[ALPHA-GOLF] Contents of signed_child_feerate: {signed_child_feerate}")
+
+        # Extract raw final transaction
+        fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
+        final_tx_hex = fully_finalized.get("hex")
+        if not final_tx_hex:
+            raise CPFPError("Could not extract hex from finalized PSBT.")
+
+        # Decode raw transaction
+        decoded_tx = rpc_connection.decoderawtransaction(final_tx_hex)
+        actual_vsize = decoded_tx.get("vsize")
+        plugin.log(f"[ALPHA-HOTEL] Actual vsize: {actual_vsize}")
+
+    except CPFPError as e:
+        plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
+        raise CPFPError("Error creating CPFP transaction.")
+    except RpcError as e:
+        plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
+        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+    except Exception as e:
+        plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
+        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+
+    # Unreserve inputs, just for testing!
+    plugin.rpc.unreserveinputs(psbt=rpc_result2)
+
+
+
+
+
 
     # # Emergency channel amount in sats, cln will create an output of this amount
     # # as long as we subtract it from the recipient amount
@@ -330,361 +429,64 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     #     raise CPFPError(f"Not enough funds: UTXO has {amount} sats, needs {emergency_refill_amount + desired_child_fee} sats (fee + reserve)")
 
 
+ 
 
-    # rpc_connection = connect_bitcoincli(
-    #     rpc_user=plugin.get_option('bump_brpc_user'),
-    #     rpc_password=plugin.get_option('bump_brpc_pass'),
-    #     port=plugin.get_option('bump_brpc_port')
-    # )
-
-    # # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
-    # # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
-    # tx = rpc_connection.getrawtransaction(txid, True)
-    # # Calculate total inputs
-    # total_inputs = 0
-    # for vin in tx["vin"]:
-    #     input_tx = rpc_connection.getrawtransaction(vin["txid"], True)
-    #     total_inputs += input_tx["vout"][vin["vout"]]["value"]
-    # # Calculate total outputs
-    # total_outputs = sum(vout["value"] for vout in tx["vout"])
-    # # Calculate the fee
-    # parent_fee = total_inputs - total_outputs
-    # parent_fee = parent_fee * 10**8
-    
-    # # Get parent transaction size
-    # parent_tx_hex = rpc_connection.getrawtransaction(txid)
-    # parent_tx_dict = rpc_connection.decoderawtransaction(parent_tx_hex)
-    # parent_vsize = parent_tx_dict.get("vsize")
-    # plugin.log(f"[WHISKEY] Contents of parent_vsize: {parent_vsize}")
-    # parent_fee_rate = parent_fee / parent_vsize  # sat/vB
-    # plugin.log(f"[XRAY] Contents of parent_fee_rate: {parent_fee_rate}")
-    # plugin.log(f"[YANKEE] Contents of parent_fee: {parent_fee}")
-
-    # child_fee = calculate_child_fee(
-    #     parent_fee,
-    #     parent_vsize,
-    #     first_child_vsize, 
-    #     fee_rate
-    # )
-
-    recipient_amount = int(amount - emergency_refill_amount - first_child_fee * 10**8) # Subtract emergency channel
-    plugin.log(f"[UNIFORM] amount: {amount},  Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats, first_child_fee: {first_child_fee}")
+    # recipient_amount = int(amount - emergency_refill_amount - first_child_fee * 10**8) # Subtract emergency channel
+    # plugin.log(f"[UNIFORM] amount: {amount},  Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats, first_child_fee: {first_child_fee}")
     # plugin.log(f"[VICTOR] fee: {fee}")
     #     # First attempt using the bitcoin rpc_connection function:
 
 
-    # fee_rate_after_bump = child_fee / first_child_vsize
-
-    # # Ensure that fee_rate_after_bump is an integer or formatted with 'perkb'
-    # feerate_integer = int(fee_rate_after_bump * 1000)  # Convert to an integer by multiplying by 1000
-    # feerate_string = f"{feerate_integer}perkb"  # Add the 'perkb' unit to the integer
-
-
-      # Use repr() to make the output more readable
-    # plugin.log(f"[DEBUG] 1st feerate: {feerate_string}")
-
 
     # Generate change address for emergency reserve
-    try:
-        reserve_address = plugin.rpc.newaddr()['bech32']
-        plugin.log(f"[RESERVE] Generated reserve address: {reserve_address}")
-    except RpcError as e:
-        raise CPFPError(f"Failed to generate reserve address: {str(e)}")
-
-
-    # Second time we call txprepare
-    try:
-        plugin.log(f"[SECOND_TXPREPARE] calling txprepare with: {recipient_amount} {utxo_selector}")
-        second_rpc_result = plugin.rpc.txprepare(
-            outputs = [
-                {address: int(recipient_amount)}, # Correct format for 'outputs'
-                #{reserve_address: int(emergency_refill_amount)}
-            ],
-            utxos=utxo_selector,  # Ensure 'utxo_selector' is correctly formatted as a list of txid:vout strings
-            #feerate=feerate_string
-        )
-
-        plugin.log(f"[RESERVE 2] recipient_amount: {recipient_amount}")
-    
-
-        # ### AQUI ME QUEDE DE HACER EL TRACING LINE POR LINEA
-        
-
-        plugin.log(f"[ZULU] second_rpc_result: {second_rpc_result}")
-        plugin.log(f"[ALPHA-ALPHA] second_feerate: {fee_rate}")
-
-        second_psbt_v2_str = second_rpc_result.get("psbt")
-
-        second_v0_psbt = plugin.rpc.setpsbtversion(
-            psbt=second_psbt_v2_str,
-            version=0
-        )
-        plugin.log(f"[ALPHA-BRAVO] second_v0_psbt: {second_v0_psbt}")
-
-        second_new_psbt= PartiallySignedTransaction.from_base64(second_v0_psbt.get("psbt"))
-
-        second_fee = second_new_psbt.get_fee()
-        plugin.log(f"[ALPHA-CHARLIE] psbt second_fee: {second_fee}")
-
-    except CPFPError as e:
-        plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-
-
-
-
-    try:
-            second_signed_v2_psbt = plugin.rpc.signpsbt(
-                psbt=second_psbt_v2_str
-            )
-
-            second_signed_v0_psbt = plugin.rpc.setpsbtversion(
-                psbt=second_signed_v2_psbt.get("signed_psbt"),
-                version=0
-            )
-            second_child_v0_psbt = second_signed_v0_psbt.get("psbt")
-            second_psbt_v0 = "'" + second_child_v0_psbt + "'"
-            second_psbt_v2 = second_signed_v2_psbt.get("signed_psbt")
-            plugin.log(f"[ALPHA-WHISKEY] Contents of rpc_connection: {rpc_connection}")
-            second_child_analyzed = rpc_connection.analyzepsbt(second_child_v0_psbt)
-            second_child_fee_generated = second_child_analyzed["fee"]
-            second_child_vsize = second_child_analyzed["estimated_vsize"]
-            second_child_feerate = second_child_analyzed["estimated_feerate"]
-            plugin.log(f"[ALPHA-ECHO] Contents of second_child_fee_generated: {second_child_fee_generated}")
-            plugin.log(f"[ALPHA-FOXTROT] Contents of second_child_vsize: {second_child_vsize}")
-            plugin.log(f"[ALPHA-GOLF] Contents of second_child_feerate: {second_child_feerate}")
-
-    except CPFPError as e:
-        plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-
-    plugin.rpc.unreserveinputs(
-        psbt=second_rpc_result.get("psbt"),
-    )
-
-
-    # Step 9: Log and return the transaction details
-    second_child = rpc_result.get("txid")
-    second_psbt = rpc_result.get("psbt")
-    second_signed_psbt = ""
-
-    # txid contains a new txid
-    plugin.log(f"[ALPHA-HOTEL] txid variable contains this txid: {txid}")
-    plugin.log(f"[ALPHA-INDIA] second_child variable contains this txid: {second_child}")
-
-
-
-
-    second_child_fee = calculate_child_fee(
-        parent_fee,
-        parent_vsize,
-        second_child_vsize, 
-        fee_rate
-    )
-
-    #incorrect feerate 4859perkb
-
-    plugin.log(f"[THIRD_RECIPIENT_AMOUNT_CALC]: {amount} - {emergency_refill_amount} - {second_child_fee}")
-    recipient_amount = int(amount - emergency_refill_amount - second_child_fee)
-    plugin.log(f"[UNIFORM] Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats")
-    plugin.log(f"[VICTOR] second_child_fee: {second_child_fee}")
-        # First attempt using the bitcoin rpc_connection function:
-
-    fee_rate_after_bump = second_child_fee / second_child_vsize
-    plugin.log(f"[FEE_RATE_AFTER_BUMP_CALC] {fee_rate_after_bump} = {second_child_fee} / {second_child_vsize}")
-
-    # Ensure that fee_rate_after_bump is an integer or formatted with 'perkb'
-    feerate_integer = int(fee_rate_after_bump * 1000)  # Convert to an integer by multiplying by 1000
-    feerate_string = f"{feerate_integer}perkb"  # Add the 'perkb' unit to the integer
-
-
-      # Use repr() to make the output more readable
-    plugin.log(f"[DEBUG] utxos: {utxo_selector}")
-    plugin.log(f"[DEBUG] 2nd feerate: {feerate_string}")
-
-
-    # Third time we call txprepare
-    try:
-        plugin.log(f"[THIRD_TXPREPARE] calling txprepare with: {recipient_amount} {utxo_selector} {feerate_string}")
-        third_rpc_result = plugin.rpc.txprepare(
-            outputs = [{address: int(recipient_amount)}],  # Correct format for 'outputs'
-            utxos=utxo_selector,  # Ensure 'utxo_selector' is correctly formatted as a list of txid:vout strings
-            # feerate=feerate_string
-            feerate="4536perkb"
-            # feerate="4536perkb"
-        )
-    
-        
-
-        plugin.log(f"[ZULU] third_rpc_result: {third_rpc_result}")
-        plugin.log(f"[ALPHA-ALPHA] third_feerate: {fee_rate}")
-
-        third_v0_psbt = plugin.rpc.setpsbtversion(
-            psbt=third_rpc_result.get("psbt"),
-            version=0
-        )
-        plugin.log(f"[ALPHA-BRAVO] third_v0_psbt: {third_v0_psbt}")
-
-        third_new_psbt= PartiallySignedTransaction.from_base64(third_v0_psbt.get("psbt"))
-
-        third_fee = third_new_psbt.get_fee()
-        plugin.log(f"[ALPHA-CHARLIE] psbt third_fee: {third_fee}")
-
-    except CPFPError as e:
-        plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
-
-
-
-
-
     # try:
-    #         first_signed_v2_psbt = plugin.rpc.signpsbt(
-    #             psbt=first_psbt
-    #         )
-
-    #         first_signed_v0_psbt = plugin.rpc.setpsbtversion(
-    #             psbt=first_signed_v2_psbt.get("signed_psbt"),
-    #             version=0
-    #         )
-    #         first_child_v0_psbt = first_signed_v0_psbt.get("psbt")
-    #         first_psbt_v0 = "'" + first_child_v0_psbt + "'"
-    #         first_psbt_v2 = first_signed_v2_psbt.get("signed_psbt")
-    #         plugin.log(f"[ALPHA-WHISKEY] Contents of rpc_connection: {rpc_connection}")
-    #         first_child_analyzed = rpc_connection.analyzepsbt(first_child_v0_psbt)
-    #         first_child_fee = first_child_analyzed["fee"]
-    #         first_child_vsize = first_child_analyzed["estimated_vsize"]
-    #         first_child_feerate = first_child_analyzed["estimated_feerate"]
-    #         plugin.log(f"[ALPHA-ECHO] Contents of first_child_fee: {first_child_fee}")
-    #         plugin.log(f"[ALPHA-FOXTROT] Contents of first_child_vsize: {first_child_vsize}")
-    #         plugin.log(f"[ALPHA-GOLF] Contents of first_child_feerate: {first_child_feerate}")
-
-    # except CPFPError as e:
-    #     plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-    #     raise CPFPError("Error creating CPFP transaction.")
+    #     reserve_address = plugin.rpc.newaddr()['bech32']
+    #     plugin.log(f"[RESERVE] Generated reserve address: {reserve_address}")
     # except RpcError as e:
-    #     plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-    #     raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    # except Exception as e:
-    #     plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-    #     raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+    #     raise CPFPError(f"Failed to generate reserve address: {str(e)}")
 
-    third_child_txid = third_rpc_result.get("txid")
-    third_psbt = third_rpc_result.get("psbt")
-    third_signed_psbt = ""
+
+
     
-    # txid contains a new txid    
-    plugin.log(f"[ALPHA-HOTEL] txid variable contains this txid: {txid}")
-    plugin.log(f"[ALPHA-INDIA] first_child variable contains this txid: {first_child}")
+    # plugin.log(f"[THIRD_RECIPIENT_AMOUNT_CALC]: {amount} - {emergency_refill_amount} - {second_child_fee}")
+    # recipient_amount = int(amount - emergency_refill_amount - second_child_fee)
+    # plugin.log(f"[UNIFORM] Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats")
+    # plugin.log(f"[VICTOR] second_child_fee: {second_child_fee}")
+    #     # First attempt using the bitcoin rpc_connection function:
 
-    try:
-        third_signed_v2_psbt = plugin.rpc.signpsbt(
-            psbt=third_psbt
-        )
 
-        third_signed_v0_psbt = plugin.rpc.setpsbtversion(
-            psbt=third_signed_v2_psbt.get("signed_psbt"),
-            version=0
-        )
-        third_child_v0_psbt = third_signed_v0_psbt.get("psbt")
-        third_psbt_v0 = "'" + third_child_v0_psbt + "'"
-        third_psbt_v2 = third_signed_v2_psbt.get("signed_psbt")
-        plugin.log(f"[ALPHA-WHISKEY] Contents of rpc_connection: {rpc_connection}")
-        third_child_analyzed = rpc_connection.analyzepsbt(third_child_v0_psbt)
-        third_child_fee = third_child_analyzed["fee"]
-        third_child_vsize = third_child_analyzed["estimated_vsize"]
-        third_child_feerate = third_child_analyzed["estimated_feerate"]
-        plugin.log(f"[ALPHA-MIKE] Contents of third_child_fee: {third_child_fee}")
-        plugin.log(f"[ALPHA-NOVEMBER] Contents of third_child_vsize: {third_child_vsize}")
-        plugin.log(f"[ALPHA-OSCAR] Contents of third_child_feerate: {third_child_feerate}")
 
-        #plugin.rpc.unreserveinputs(
-           #psbt=third_rpc_result.get("psbt"),
-        #)
 
-        # third_child_fee = calculate_child_fee(
-        #     parent_fee,
-        #     parent_vsize,
-        #     third_child_vsize, 
-        #     fee_rate
-        # )
-        
-        third_child_fee_sat = third_child_fee * 10**8
 
-        print(f"Child transaction fee: {third_child_fee_sat} satoshis")
-        plugin.log(f"[ALPHA-PAPA] line 547: third_child_fee_sat variable contains: {third_child_fee_sat}")
 
-        child_fee_rate = third_child_fee_sat / third_child_vsize  # sat/vB
-        plugin.log(f"[ALPHA-QUEBEC] line 438: child_fee_rate variable contains: {child_fee_rate}")
 
-        plugin.log(f"[ALPHA-ROMEO] third_rpc_result: {json.dumps(third_rpc_result, indent=4)}")  # Log the full result
-
-        total_vsizes = parent_vsize + third_child_vsize
-        plugin.log(f"[ALPHA-SIERRA] Contents of total_vsizes: {total_vsizes}")
-        plugin.log(f"[ALPHA-SIERRA-B] Contents of parent_fee: {parent_fee}")
-        plugin.log(f"[ALPHA-SIERRA-C] Contents of third_child_fee_sat: {third_child_fee_sat}")
-        total_fees = (parent_fee + third_child_fee_sat)  # Convert fees to satoshis if in BTC
-        plugin.log(f"[ALPHA-TANGO] Contents of total_fees: {total_fees}")
-        total_feerate = total_fees / total_vsizes
-        plugin.log(f"[ALPHA-UNIFORM] Contents of total_feerate: {total_feerate}")
-
-        plugin.log(f"[ALPHA-VICTOR] Signed PSBT (v2): {third_signed_v2_psbt}")
-        plugin.log(f"[ALPHA-WHISKEY] Signed PSBT (v0): {third_signed_v0_psbt}")
-    except CPFPError as e:
-        plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
-    except RpcError as e:
-        plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
 
     # Convert all values to JSON-serializable types
     response = {
         "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
         "the details before broadcasting the transaction",
-        "finalize_command": f'bitcoin-cli finalizepsbt {third_psbt_v0}',
-        "analyze_command": f'bitcoin-cli analyzepsbt {third_psbt_v0}',
-        "signed_psbt": str(third_psbt_v2),  # Convert to string
-        "parent_fee": int(parent_fee),  # Add parent fee
-        "parent_vsize": int(parent_vsize),  # Add parent vsize
-        "parent_feerate": float(parent_fee_rate),  # Convert to float
-        "third_child_fee_sat": int(third_child_fee_sat),  # Add child fee
-        "child_vsize": int(third_child_vsize),  # Add child vsize
-        "child_feerate": float(child_fee_rate),  # Convert to float
-        "total_fees": int(total_fees),  # Convert to int
-        "total_vsizes": int(total_vsizes),  # Convert to int
-        "total_feerate": float(total_feerate),  # Convert to float
-        "parent_psbt": plugin.rpc.setpsbtversion(psbt=first_psbt, version=0)['psbt'],
-        "child_psbt": third_child_v0_psbt,
-        "parent_txid": txid,
-        "child_txid": third_child_txid
+        "finalize_command": f'bitcoin-cli finalizepsbt {second_psbt}',  # Use second_psbt from logs
+        "analyze_command": f'bitcoin-cli analyzepsbt {second_psbt}',  # Use second_psbt from logs
+        "signed_psbt": str(new_psbt2),  # Use new_psbt2 as the signed PSBT
+        "parent_fee": int(parent_fee),  # Parent fee value from logs
+        "parent_vsize": int(parent_vsize),  # Parent vsize value from logs
+        "parent_feerate": float(parent_fee_rate),  # Parent fee rate value from logs
+        "child_fee_sat": int(first_child_fee),  # Use first_child_fee for third child fee
+        "child_vsize": int(second_child_vsize),  # Child vsize value from second_child_analyzed
+        "child_feerate": float(second_child_feerate),  # Child fee rate from second_child_analyzed
+        "total_fees": int(second_child_fee),  # Total fee value from second_child_analyzed
+        "total_vsizes": int(second_child_vsize),  # Total vsize (assuming same as child_vsize)
+        "total_feerate": float(second_child_feerate),  # Total feerate (assuming same as child_feerate)
+        "parent_psbt": plugin.rpc.setpsbtversion(psbt=first_psbt, version=0)['psbt'],  # First PSBT
+        "child_psbt": second_psbt,  # Use second_psbt as the child PSBT
+        "parent_txid": txid,  # Parent transaction ID, already defined
+        "child_txid": final_tx_hex  # Child transaction ID, already defined
     }
 
     plugin.log(f"[BRAVO-ALPHA] line 556: txid variable contains this txid: {txid}")
-    plugin.log(f"[BRAVO-BRAVO] line 557: third_child_txid variable contains this txid: {third_child_txid}")
+    plugin.log(f"[BRAVO-BRAVO] line 557: third_child_txid variable contains this txid: {final_tx_hex}")
 
     return response
+
 
 plugin.run()
