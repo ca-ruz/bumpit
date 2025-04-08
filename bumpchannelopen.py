@@ -379,18 +379,20 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         # Log the raw PSBT for inspection
         plugin.log(f"[DEBUG] Finalized PSBT (base64: {finalized_psbt_base64}")
 
-        # Analyze the finalized PSBT
-        signed_child_analyzed = rpc_connection.analyzepsbt(finalized_psbt_base64)
+        # Decode the finalized PSBT
+        signed_child_decoded = rpc_connection.decodepsbt(finalized_psbt_base64)
+        plugin.log(f"[DEBUG] signed_child_decoded after finalization: {signed_child_decoded}")
 
-        plugin.log(f"[DEBUG] signed_child_analyzed after finalization: {signed_child_analyzed}")
+        signed_child_fee = signed_child_decoded.get("fee")
 
-        signed_child_fee = signed_child_analyzed.get("fee", "Not available")
-        signed_child_vsize = signed_child_analyzed.get("estimated_vsize", "Not available")
-        signed_child_feerate = signed_child_analyzed.get("estimated_feerate", "Not available")
+        try:
+            feerate_satvbyte = (float(signed_child_fee) * 1e8) / int(second_child_vsize)
+        except (TypeError, ValueError, ZeroDivisionError) as e:
+            plugin.log(f"[ERROR] Failed to compute feerate: {str(e)}")
 
         plugin.log(f"[ALPHA-ECHO] Contents of signed_child_fee: {signed_child_fee}")
-        plugin.log(f"[ALPHA-FOXTROT] Contents of signed_child_vsize: {signed_child_vsize}")
-        plugin.log(f"[ALPHA-GOLF] Contents of signed_child_feerate: {signed_child_feerate}")
+        plugin.log(f"[ALPHA-FOXTROT] Contents of signed_child_vsize: {second_child_vsize}")
+        plugin.log(f"[ALPHA-GOLF] Contents of signed_child_feerate: {feerate_satvbyte}")
 
         # Extract raw final transaction
         fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
@@ -403,6 +405,9 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         actual_vsize = decoded_tx.get("vsize")
         plugin.log(f"[ALPHA-HOTEL] Actual vsize: {actual_vsize}")
 
+        txid = decoded_tx.get("txid")
+        plugin.log(f"[ALPHA-INDIA] Final transaction ID (txid): {txid}")
+
     except CPFPError as e:
         plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
         raise CPFPError("Error creating CPFP transaction.")
@@ -414,79 +419,47 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         raise CPFPError(f"Error while withdrawing funds: {str(e)}")
 
     # Unreserve inputs, just for testing!
-    plugin.rpc.unreserveinputs(psbt=rpc_result2)
+    # plugin.rpc.unreserveinputs(psbt=rpc_result2)
 
+    # Convert child_fee to satoshis
+    child_fee_satoshis = float(signed_child_fee) * 100000000  # Convert to satoshis
 
+    # Calculate total fees (sum of parent and child fees)
+    total_fees = int(parent_fee) + int(child_fee_satoshis)
 
+    # Calculate total vsize (sum of parent and child vsizes)
+    total_vsizes = int(parent_vsize) + int(second_child_vsize)
 
+    # Calculate the total fee rate (total_fees / total_vsizes)
+    total_feerate = total_fees / total_vsizes  # This will give the fee rate in sat/vbyte
 
-
-    # # Emergency channel amount in sats, cln will create an output of this amount
-    # # as long as we subtract it from the recipient amount
-    # emergency_refill_amount = max(25000 - total_sats, 0)  # Ensures non-negative value
-
-    # if (emergency_refill_amount + desired_child_fee) >= amount:
-    #     raise CPFPError(f"Not enough funds: UTXO has {amount} sats, needs {emergency_refill_amount + desired_child_fee} sats (fee + reserve)")
-
-
- 
-
-    # recipient_amount = int(amount - emergency_refill_amount - first_child_fee * 10**8) # Subtract emergency channel
-    # plugin.log(f"[UNIFORM] amount: {amount},  Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats, first_child_fee: {first_child_fee}")
-    # plugin.log(f"[VICTOR] fee: {fee}")
-    #     # First attempt using the bitcoin rpc_connection function:
-
-
-
-    # Generate change address for emergency reserve
-    # try:
-    #     reserve_address = plugin.rpc.newaddr()['bech32']
-    #     plugin.log(f"[RESERVE] Generated reserve address: {reserve_address}")
-    # except RpcError as e:
-    #     raise CPFPError(f"Failed to generate reserve address: {str(e)}")
-
-
-
-    
-    # plugin.log(f"[THIRD_RECIPIENT_AMOUNT_CALC]: {amount} - {emergency_refill_amount} - {second_child_fee}")
-    # recipient_amount = int(amount - emergency_refill_amount - second_child_fee)
-    # plugin.log(f"[UNIFORM] Reserve amount: {emergency_refill_amount} sats, Recipient amount: {recipient_amount} sats")
-    # plugin.log(f"[VICTOR] second_child_fee: {second_child_fee}")
-    #     # First attempt using the bitcoin rpc_connection function:
-
-
-
-
-
-
-
-
-    # Convert all values to JSON-serializable types
+    # Prepare the response
     response = {
-        "message": "Please make sure to run bitcoin-cli finalizepsbt and analyzepsbt to verify "
-        "the details before broadcasting the transaction",
-        "finalize_command": f'bitcoin-cli finalizepsbt {second_psbt}',  # Use second_psbt from logs
-        "analyze_command": f'bitcoin-cli analyzepsbt {second_psbt}',  # Use second_psbt from logs
-        "signed_psbt": str(new_psbt2),  # Use new_psbt2 as the signed PSBT
+        "message": "This is beta software, this might spend all your money. Please make sure to run bitcoin-cli analyzepsbt to verify "
+                "the fee before broadcasting the transaction",
+        "analyze_command": f'bitcoin-cli analyzepsbt {finalized_psbt_base64}',  # Signed and finalized PSBT
+
+        # "child_txid": txid,  # Child transaction ID
+
         "parent_fee": int(parent_fee),  # Parent fee value from logs
         "parent_vsize": int(parent_vsize),  # Parent vsize value from logs
         "parent_feerate": float(parent_fee_rate),  # Parent fee rate value from logs
-        "child_fee_sat": int(first_child_fee),  # Use first_child_fee for third child fee
-        "child_vsize": int(second_child_vsize),  # Child vsize value from second_child_analyzed
-        "child_feerate": float(second_child_feerate),  # Child fee rate from second_child_analyzed
-        "total_fees": int(second_child_fee),  # Total fee value from second_child_analyzed
-        "total_vsizes": int(second_child_vsize),  # Total vsize (assuming same as child_vsize)
-        "total_feerate": float(second_child_feerate),  # Total feerate (assuming same as child_feerate)
-        "parent_psbt": plugin.rpc.setpsbtversion(psbt=first_psbt, version=0)['psbt'],  # First PSBT
-        "child_psbt": second_psbt,  # Use second_psbt as the child PSBT
-        "parent_txid": txid,  # Parent transaction ID, already defined
-        "child_txid": final_tx_hex  # Child transaction ID, already defined
+
+        "child_fee": int(float(signed_child_fee) * 10**8),  # Convert BTC to sats
+        "child_vsize": int(second_child_vsize),  # Child vsize value
+        "child_feerate": float(feerate_satvbyte),  # Child fee rate
+
+        # Calculate total fees and feerates correctly
+        "total_fees": total_fees,  # Total fee value in satoshis
+        "total_vsizes": total_vsizes,  # Total vsize
+        "total_feerate": total_feerate,  # Correct total feerate
+
+        "desired_total_feerate": fee_rate,  # Desired total fee rate
+
+        "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
+        "sendrawtransaction_command": f'bitcoin-cli sendrawtransaction {final_tx_hex}',
     }
 
-    plugin.log(f"[BRAVO-ALPHA] line 556: txid variable contains this txid: {txid}")
-    plugin.log(f"[BRAVO-BRAVO] line 557: third_child_txid variable contains this txid: {final_tx_hex}")
-
     return response
-
 
 plugin.run()
