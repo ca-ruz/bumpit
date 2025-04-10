@@ -290,7 +290,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
 
     plugin.log(f"[YANKEE1.5] Contents of desired_child_fee: {desired_child_fee}")
 
-    recipient_amount = amount - (float(desired_child_fee) / 10**8) # Subtract manually estimated fees, all should be in BTC
+    amount = format(amount, '.8f')
+
+    recipient_amount = float(amount) - (float(desired_child_fee) / 10**8) # Subtract manually estimated fees, all should be in BTC
+
+    recipient_amount = format(recipient_amount, '.8f')
+
     plugin.log(f"[UNIFORM] amount: {amount}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
 
     # Step 6: Use bitcoin rpc call `createpsbt` a second time using the amount - the child's_fee
