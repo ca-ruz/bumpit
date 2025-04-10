@@ -4,6 +4,7 @@ import json
 from bitcointx.core.psbt import PartiallySignedTransaction
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 import os
+import sys
 
 plugin = Plugin()
 
@@ -462,8 +463,20 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         "desired_total_feerate": fee_rate,  # Desired total fee rate
 
         "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
-        "sendrawtransaction_command": f'bitcoin-cli sendrawtransaction {final_tx_hex}',
+        "sendrawtransaction_command": f'bitcoin-cli sendrawtransaction {final_tx_hex}'
     }
+
+    # If --yolo argument is passed, send the raw transaction
+    if '--yolo' in sys.argv:
+        try:
+            # Assuming that we have the final PSBT here in `final_tx_hex`
+            plugin.log(f"[YOLO] Sending raw transaction...")
+            sent_txid = plugin.rpc.sendrawtransaction(final_tx_hex)  # Use the final_tx_hex for final submission
+            plugin.log(f"[YOLO] Transaction sent! TXID: {sent_txid}")
+        except Exception as e:
+            plugin.log(f"[ERROR] Error sending raw transaction: {str(e)}")
+            raise Exception(f"Error sending raw transaction: {str(e)}")
+
 
     return response
 
