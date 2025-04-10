@@ -82,7 +82,7 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
 
 
 @plugin.method("bumpchannelopen")
-def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
+def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs):
     """
     Creates a CPFP transaction for a specific parent output.
     
@@ -92,6 +92,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
         fee_rate: Desired fee rate in sat/vB
         address: Destination address for change
     """
+
+    if yolo:
+        plugin.log("YOLO mode is ON!")
+    else:
+        plugin.log("Safety mode is ON!")
+
     # Input validation
     if not txid or vout is None:
         raise CPFPError("Both txid and vout are required.")
@@ -467,15 +473,16 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, **kwargs):
     }
 
     # If --yolo argument is passed, send the raw transaction
-    if '--yolo' in sys.argv:
+    if yolo:
         try:
-            # Assuming that we have the final PSBT here in `final_tx_hex`
             plugin.log(f"[YOLO] Sending raw transaction...")
-            sent_txid = plugin.rpc.sendrawtransaction(final_tx_hex)  # Use the final_tx_hex for final submission
+            sent_txid = rpc_connection.sendrawtransaction(final_tx_hex)  # Use the final_tx_hex for final submission
             plugin.log(f"[YOLO] Transaction sent! TXID: {sent_txid}")
         except Exception as e:
             plugin.log(f"[ERROR] Error sending raw transaction: {str(e)}")
             raise Exception(f"Error sending raw transaction: {str(e)}")
+    else:
+        plugin.log("Dry run: transaction not sent. Use yolo=true to broadcast.")
 
 
     return response
