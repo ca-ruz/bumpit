@@ -82,7 +82,7 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
 
 
 @plugin.method("bumpchannelopen")
-def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs):
+def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=None):
     """
     Creates a CPFP transaction for a specific parent output.
     
@@ -91,9 +91,10 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs)
         vout: Output index
         fee_rate: Desired fee rate in sat/vB
         address: Destination address for change
+        yolo: Argument to send transaction automatically
     """
 
-    if yolo:
+    if yolo == "yolo":
         plugin.log("YOLO mode is ON!")
     else:
         plugin.log("Safety mode is ON!")
@@ -184,7 +185,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs)
     listaddresses_result = plugin.rpc.listaddresses()
 
     # Debug log to inspect the returned addresses
-    plugin.log(f"[DEBUG] listaddresses result: {listaddresses_result}")
+    # plugin.log(f"[DEBUG] listaddresses result: {listaddresses_result}")
 
     # Extract bech32 and p2tr addresses from the result
     valid_addresses = [
@@ -445,13 +446,17 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs)
     # Calculate the total fee rate (total_fees / total_vsizes)
     total_feerate = total_fees / total_vsizes  # This will give the fee rate in sat/vbyte
 
-    # Prepare the response
+
+
+
+
+
+
+    # Default response
     response = {
         "message": "This is beta software, this might spend all your money. Please make sure to run bitcoin-cli analyzepsbt to verify "
-                "the fee before broadcasting the transaction",
+                    "the fee before broadcasting the transaction",
         "analyze_command": f'bitcoin-cli analyzepsbt {finalized_psbt_base64}',  # Signed and finalized PSBT
-
-        # "child_txid": txid,  # Child transaction ID
 
         "parent_fee": int(parent_fee),  # Parent fee value from logs
         "parent_vsize": int(parent_vsize),  # Parent vsize value from logs
@@ -472,18 +477,71 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=False, **kwargs)
         "sendrawtransaction_command": f'bitcoin-cli sendrawtransaction {final_tx_hex}'
     }
 
-    # If --yolo argument is passed, send the raw transaction
-    if yolo:
-        try:
-            plugin.log(f"[YOLO] Sending raw transaction...")
-            sent_txid = rpc_connection.sendrawtransaction(final_tx_hex)  # Use the final_tx_hex for final submission
-            plugin.log(f"[YOLO] Transaction sent! TXID: {sent_txid}")
-        except Exception as e:
-            plugin.log(f"[ERROR] Error sending raw transaction: {str(e)}")
-            raise Exception(f"Error sending raw transaction: {str(e)}")
-    else:
-        plugin.log("Dry run: transaction not sent. Use yolo=true to broadcast.")
+    # If yolo argument is passed, send the raw transaction, if its mispelled, throw out a different message
+    if yolo is not None:
+        if yolo == "yolo":
+            try:
+                plugin.log(f"[YOLO] Sending raw transaction...")
+                sent_txid = rpc_connection.sendrawtransaction(final_tx_hex)  # Use the final_tx_hex for final submission
+                plugin.log(f"[YOLO] Transaction sent! TXID: {sent_txid}")
 
+                # YOLO response
+                response = {
+                    "message": "You used YOLO mode! Transaction sent! Please run the analyze and getrawtransaction commands to confirm transaction details.",
+
+                    "analyze_command": f'bitcoin-cli analyzepsbt {finalized_psbt_base64}',  # Signed and finalized PSBT
+
+                    "getrawtransaction_command": f'bitcoin-cli getrawtransaction {sent_txid}',
+
+                    "parent_fee": int(parent_fee),  # Parent fee value from logs
+                    "parent_vsize": int(parent_vsize),  # Parent vsize value from logs
+                    "parent_feerate": float(parent_fee_rate),  # Parent fee rate value from logs
+
+                    "child_fee": int(float(signed_child_fee) * 10**8),  # Convert BTC to sats
+                    "child_vsize": int(second_child_vsize),  # Child vsize value
+                    "child_feerate": float(feerate_satvbyte),  # Child fee rate
+
+                    # Calculate total fees and feerates correctly
+                    "total_fees": total_fees,  # Total fee value in satoshis
+                    "total_vsizes": total_vsizes,  # Total vsize
+                    "total_feerate": total_feerate,  # Correct total feerate
+
+                    "desired_total_feerate": fee_rate,  # Desired total fee rate
+                } 
+
+
+            except Exception as e:
+                plugin.log(f"[ERROR] Error sending raw transaction: {str(e)}")
+                raise Exception(f"Error sending raw transaction: {str(e)}")
+        else:
+            # Mistyped YOLO
+            plugin.rpc.unreserveinputs(psbt=finalized_psbt_base64)
+            response = {
+                "message": "You missed YOLO mode! You passed an argument, but not `yolo`. Transaction created but not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast. "
+                "If you want to manually broadcast the created transaction please make sure to run bitcoin-cli analyzepsbt to verify the fee "
+                "and run bitcoin-cli sendrawtransction to broadcast it.",
+
+                "analyze_command": f'bitcoin-cli analyzepsbt {finalized_psbt_base64}',  # Signed and finalized PSBT
+
+                "parent_fee": int(parent_fee),  # Parent fee value from logs
+                "parent_vsize": int(parent_vsize),  # Parent vsize value from logs
+                "parent_feerate": float(parent_fee_rate),  # Parent fee rate value from logs
+
+                "child_fee": int(float(signed_child_fee) * 10**8),  # Convert BTC to sats
+                "child_vsize": int(second_child_vsize),  # Child vsize value
+                "child_feerate": float(feerate_satvbyte),  # Child fee rate
+
+                # Calculate total fees and feerates correctly
+                "total_fees": total_fees,  # Total fee value in satoshis
+                "total_vsizes": total_vsizes,  # Total vsize
+                "total_feerate": total_feerate,  # Correct total feerate
+
+                "desired_total_feerate": fee_rate,  # Desired total fee rate
+
+                "sendrawtransaction_command": f'bitcoin-cli sendrawtransaction {final_tx_hex}'
+            }
+            
+            plugin.log("Dry run: transaction not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast.")
 
     return response
 
