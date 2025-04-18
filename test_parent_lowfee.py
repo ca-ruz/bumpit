@@ -84,7 +84,7 @@ def test_bumpchannelopen(node_factory):
         f"vsize={parent_details['vsize']} vB, feerate={parent_details['feerate']} sat/vB")
 
     # Call bumpchannelopen
-    target_feerate = 3 # Desired feerate in sat/vB
+    target_feerate = 5 # Desired feerate in sat/vB
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
@@ -96,7 +96,7 @@ def test_bumpchannelopen(node_factory):
     plugin_parent_fee = result.get('parent_fee', 0)
     plugin_parent_vsize = result.get('parent_vsize', 0)
     plugin_parent_feerate = result.get('parent_feerate', 0)
-    plugin_child_fee = result.get('third_child_fee_sat"', 0)
+    plugin_child_fee = result.get('child_fee', 0)
     plugin_child_vsize = result.get('child_vsize', 0)
     plugin_child_feerate = result.get('child_feerate', 0)
     plugin_total_fees = result.get('total_fees', 0)
