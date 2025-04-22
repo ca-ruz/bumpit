@@ -16,24 +16,23 @@ def calculate_parent_tx_details(bitcoind, txid):
     Returns:
         dict: Contains fee (in satoshis), feerate (sat/vB), and vsize (vbytes)
     """
-    # Get raw transaction details
+    # Fetch and decode the transaction
     tx_hex = bitcoind.rpc.getrawtransaction(txid)
     tx_details = bitcoind.rpc.decoderawtransaction(tx_hex)
     
-    # Calculate total inputs (in BTC)
-    total_inputs = 0
-    for vin in tx_details["vin"]:
-        input_tx = bitcoind.rpc.getrawtransaction(vin["txid"], True)
-        total_inputs += input_tx["vout"][vin["vout"]]["value"]
+    # Sum input values (in BTC)
+    total_inputs = sum(
+        bitcoind.rpc.getrawtransaction(vin["txid"], True)["vout"][vin["vout"]]["value"]
+        for vin in tx_details["vin"]
+    )
     
-    # Calculate total outputs (in BTC)
+    # Sum output values (in BTC)
     total_outputs = sum(vout["value"] for vout in tx_details["vout"])
     
     # Calculate fee in satoshis
-    fee_btc = total_inputs - total_outputs
-    fee_sats = int(fee_btc * 10**8)
+    fee_sats = int((total_inputs - total_outputs) * 10**8)
     
-    # Get transaction vsize
+    # Get virtual size (vbytes)
     vsize = tx_details["vsize"]
     
     # Calculate feerate (sat/vB)
@@ -46,7 +45,11 @@ def calculate_parent_tx_details(bitcoind, txid):
     }
 
 def test_bumpchannelopen(node_factory):
-    # Basic setup
+    """
+    Test the bumpchannelopen plugin to ensure it correctly bumps a channel open transaction
+    using CPFP, achieving the target total feerate.
+    """
+    # Configure nodes with plugin options
     opts = {
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
@@ -55,44 +58,46 @@ def test_bumpchannelopen(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
     
-    # Connect nodes and create channel
+    # Set up nodes and fund a channel
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, 1)
+    bitcoind.rpc.sendtoaddress(addr, 1)  # Send 1 BTC to l1
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
     
-    # Create the funding transaction
+    # Open a channel and get the funding transaction
     funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, 3000)
     funding_txid = funding['txid']
-    print(f"Funding tx id after funding channel: {funding_txid}")
-
-    # Find the change output using listfunds
-    outputs = l1.rpc.listfunds()['outputs']
-    change_output = None
-    for output in outputs:
-        if output['txid'] == funding_txid and not output['reserved']:
-            change_output = output
-            break
+    print(f"Funding transaction ID: {funding_txid}")
     
+    # Find the unreserved change output from the funding transaction
+    outputs = l1.rpc.listfunds()['outputs']
+    change_output = next(
+        (output for output in outputs if output['txid'] == funding_txid and not output['reserved']),
+        None
+    )
     assert change_output is not None, "Could not find unreserved change output"
-
+    
     # Calculate parent transaction details independently
     parent_details = calculate_parent_tx_details(bitcoind, funding_txid)
-    print(f"Calculated parent details: fee={parent_details['fee']} sats, "
-        f"vsize={parent_details['vsize']} vB, feerate={parent_details['feerate']} sat/vB")
-
-    # Call bumpchannelopen
-    target_feerate = 5 # Desired feerate in sat/vB
+    print(f"Parent transaction details:")
+    print(f"  Fee: {parent_details['fee']} sats")
+    print(f"  Vsize: {parent_details['vsize']} vB")
+    print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
+    
+    # Call bumpchannelopen with a dry run to trigger additional plugin logs
+    target_feerate = 5  # Desired total feerate in sat/vB
+    new_address = l1.rpc.newaddr()['bech32']
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
-        address=l1.rpc.newaddr()['bech32']
+        address=new_address,
+        yolo="dryrun"  # Trigger dry run logging without broadcasting
     )
-
-    # Extract values from plugin result
+    
+    # Extract plugin results
     plugin_parent_fee = result.get('parent_fee', 0)
     plugin_parent_vsize = result.get('parent_vsize', 0)
     plugin_parent_feerate = result.get('parent_feerate', 0)
@@ -102,16 +107,26 @@ def test_bumpchannelopen(node_factory):
     plugin_total_fees = result.get('total_fees', 0)
     plugin_total_vsizes = result.get('total_vsizes', 0)
     plugin_total_feerate = result.get('total_feerate', 0)
-
-    # Print plugin results for debugging
-    print(f"Plugin parent details: fee={plugin_parent_fee} sats, "
-          f"vsize={plugin_parent_vsize} vB, feerate={plugin_parent_feerate} sat/vB")
-    print(f"Plugin child details: fee={plugin_child_fee} sats, "
-          f"vsize={plugin_child_vsize} vB, feerate={plugin_child_feerate} sat/vB")
-    print(f"Plugin total: fees={plugin_total_fees} sats, vsizes={plugin_total_vsizes} vB, "
-          f"feerate={plugin_total_feerate} sat/vB")
-
-    # Compare calculated parent details with plugin output
+    
+    # Print detailed plugin output for debugging
+    print("\nPlugin response:")
+    print(f"  Message: {result.get('message', 'N/A')}")
+    print(f"  Analyze command: {result.get('analyze_command', 'N/A')}")
+    print(f"  Send raw transaction command: {result.get('sendrawtransaction_command', 'N/A')}")
+    print(f"  Parent details:")
+    print(f"    Fee: {plugin_parent_fee} sats")
+    print(f"    Vsize: {plugin_parent_vsize} vB")
+    print(f"    Feerate: {plugin_parent_feerate:.2f} sat/vB")
+    print(f"  Child details:")
+    print(f"    Fee: {plugin_child_fee} sats")
+    print(f"    Vsize: {plugin_child_vsize} vB")
+    print(f"    Feerate: {plugin_child_feerate:.2f} sat/vB")
+    print(f"  Total details:")
+    print(f"    Fees: {plugin_total_fees} sats")
+    print(f"    Vsizes: {plugin_total_vsizes} vB")
+    print(f"    Feerate: {plugin_total_feerate:.2f} sat/vB")
+    
+    # Verify parent transaction details
     assert plugin_parent_fee == parent_details['fee'], (
         f"Parent fee mismatch: plugin={plugin_parent_fee}, calculated={parent_details['fee']}"
     )
@@ -119,30 +134,24 @@ def test_bumpchannelopen(node_factory):
         f"Parent vsize mismatch: plugin={plugin_parent_vsize}, calculated={parent_details['vsize']}"
     )
     assert abs(plugin_parent_feerate - parent_details['feerate']) < 0.01, (
-        f"Parent feerate mismatch: plugin={plugin_parent_feerate}, calculated={parent_details['feerate']}"
+        f"Parent feerate mismatch: plugin={plugin_parent_feerate:.2f}, calculated={parent_details['feerate']:.2f}"
     )
-
+    
     # Verify child fee is positive
-    assert plugin_child_fee > 0, "Child fee should be positive"
-
-    # Recalculate total feerate and compare with target
+    assert plugin_child_fee > 0, "Child fee must be positive"
+    
+    # Verify total feerate matches target
     calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0
-    print(f"Recalculated total feerate: {calculated_total_feerate} sat/vB")
+    print(f"Recalculated total feerate: {calculated_total_feerate:.2f} sat/vB")
     
-    # Allow for small floating-point differences
     assert abs(calculated_total_feerate - target_feerate) < 0.1, (
-        f"Total feerate doesn't match target: target={target_feerate}, "
-        f"calculated={calculated_total_feerate}"
+        f"Total feerate mismatch: target={target_feerate}, calculated={calculated_total_feerate:.2f}"
     )
-    
-    # Verify plugin-reported total_feerate matches calculation
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
-        f"Plugin total feerate doesn't match calculation: "
-        f"plugin={plugin_total_feerate}, calculated={calculated_total_feerate}"
+        f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
     )
 
 if __name__ == "__main__":
-    # For manual testing
     from pyln.testing.fixtures import setup_node_factory
     node_factory = setup_node_factory()
     test_bumpchannelopen(node_factory)
