@@ -36,10 +36,10 @@ def calculate_parent_tx_details(bitcoind, txid):
         "feerate": feerate
     }
 
-def test_bumpchannelopen_high_parent_fee(node_factory):
+def test_yolo_mode(node_factory):
     """
-    Test bumpchannelopen when the parent transaction has a high feerate (≥10 sat/vB),
-    ensuring the plugin skips CPFP and returns an appropriate message.
+    Test bumpchannelopen in YOLO mode (yolo='yolo') to ensure the transaction is
+    broadcast and the response includes valid fee details and transaction ID.
     """
     # Set up nodes with plugin options
     opts = {
@@ -58,8 +58,7 @@ def test_bumpchannelopen_high_parent_fee(node_factory):
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
     
-    # Fund channel with a high feerate (100 sat/vB)
-    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="100000perkb")
+    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, 3000)
     funding_txid = funding['txid']
     print(f"Funding transaction ID: {funding_txid}")
     
@@ -78,74 +77,73 @@ def test_bumpchannelopen_high_parent_fee(node_factory):
     print(f"  Vsize: {parent_details['vsize']} vB")
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
-    # Assert parent feerate is high enough
-    assert parent_details['feerate'] >= 10, (
-        f"Parent feerate too low: {parent_details['feerate']:.2f} sat/vB, expected >= 10"
-    )
-    
-    # Call bumpchannelopen with a lower target feerate
-    target_feerate = 3
+    # Call bumpchannelopen in YOLO mode
+    target_feerate = 5
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
         address=l1.rpc.newaddr()['bech32'],
-        yolo="dryrun"
+        yolo="yolo"
     )
+    
+    # Extract plugin results
+    plugin_parent_fee = result.get('parent_fee', 0)
+    plugin_parent_vsize = result.get('parent_vsize', 0)
+    plugin_parent_feerate = result.get('parent_feerate', 0)
+    plugin_child_fee = result.get('child_fee', 0)
+    plugin_child_vsize = result.get('child_vsize', 0)
+    plugin_child_feerate = result.get('child_feerate', 0)
+    plugin_total_fees = result.get('total_fees', 0)
+    plugin_total_vsizes = result.get('total_vsizes', 0)
+    plugin_total_feerate = result.get('total_feerate', 0)
     
     # Print plugin output
     print("\nPlugin response:")
     print(f"  Message: {result.get('message', 'N/A')}")
+    print(f"  Get raw transaction command: {result.get('getrawtransaction_command', 'N/A')}")
     print(f"  Parent details:")
-    print(f"    Fee: {result.get('parent_fee', 0)} sats")
-    print(f"    Vsize: {result.get('parent_vsize', 0)} vB")
-    print(f"    Feerate: {result.get('parent_feerate', 0):.2f} sat/vB")
+    print(f"    Fee: {plugin_parent_fee} sats")
+    print(f"    Vsize: {plugin_parent_vsize} vB")
+    print(f"    Feerate: {plugin_parent_feerate:.2f} sat/vB")
     print(f"  Child details:")
-    print(f"    Fee: {result.get('child_fee', 0)} sats")
-    print(f"    Vsize: {result.get('child_vsize', 0)} vB")
-    print(f"    Feerate: {result.get('child_feerate', 0):.2f} sat/vB")
+    print(f"    Fee: {plugin_child_fee} sats")
+    print(f"    Vsize: {plugin_child_vsize} vB")
+    print(f"    Feerate: {plugin_child_feerate:.2f} sat/vB")
     print(f"  Total details:")
-    print(f"    Fees: {result.get('total_fees', 0)} sats")
-    print(f"    Vsizes: {result.get('total_vsizes', 0)} vB")
-    print(f"    Feerate: {result.get('total_feerate', 0):.2f} sat/vB")
-    print(f"  Desired total feerate: {result.get('desired_total_feerate', 'N/A')}")
-    
-    # Verify the plugin skipped CPFP
-    assert result['message'] == "No CPFP needed: parent feerate exceeds target", (
-        f"Expected skip message, got: {result['message']}"
-    )
-    assert result['child_fee'] == 0, "Child fee must be zero when CPFP is skipped"
-    assert result['child_vsize'] == 0, "Child vsize must be zero when CPFP is skipped"
-    assert result['child_feerate'] == 0, "Child feerate must be zero when CPFP is skipped"
+    print(f"    Fees: {plugin_total_fees} sats")
+    print(f"    Vsizes: {plugin_total_vsizes} vB")
+    print(f"    Feerate: {plugin_total_feerate:.2f} sat/vB")
     
     # Verify parent details
-    assert result['parent_fee'] == parent_details['fee'], (
-        f"Parent fee mismatch: plugin={result['parent_fee']}, calculated={parent_details['fee']}"
+    assert plugin_parent_fee == parent_details['fee'], (
+        f"Parent fee mismatch: plugin={plugin_parent_fee}, calculated={parent_details['fee']}"
     )
-    assert result['parent_vsize'] == parent_details['vsize'], (
-        f"Parent vsize mismatch: plugin={result['parent_vsize']}, calculated={parent_details['vsize']}"
+    assert plugin_parent_vsize == parent_details['vsize'], (
+        f"Parent vsize mismatch: plugin={plugin_parent_vsize}, calculated={parent_details['vsize']}"
     )
-    assert abs(result['parent_feerate'] - parent_details['feerate']) < 0.01, (
-        f"Parent feerate mismatch: plugin={result['parent_feerate']:.2f}, calculated={parent_details['feerate']:.2f}"
-    )
-    
-    # Verify total details match parent (since no child transaction)
-    assert result['total_fees'] == parent_details['fee'], (
-        f"Total fees mismatch: plugin={result['total_fees']}, expected={parent_details['fee']}"
-    )
-    assert result['total_vsizes'] == parent_details['vsize'], (
-        f"Total vsizes mismatch: plugin={result['total_vsizes']}, expected={parent_details['vsize']}"
-    )
-    assert abs(result['total_feerate'] - parent_details['feerate']) < 0.01, (
-        f"Total feerate mismatch: plugin={result['total_feerate']:.2f}, expected={parent_details['feerate']:.2f}"
+    assert abs(plugin_parent_feerate - parent_details['feerate']) < 0.01, (
+        f"Parent feerate mismatch: plugin={plugin_parent_feerate:.2f}, calculated={parent_details['feerate']:.2f}"
     )
     
-    # Verify desired total feerate
-    assert result['desired_total_feerate'] == target_feerate, (
-        f"Desired total feerate mismatch: plugin={result['desired_total_feerate']}, expected={target_feerate}"
+    # Verify child fee is positive
+    assert plugin_child_fee > 0, "Child fee must be positive"
+    
+    # Verify total feerate matches target
+    calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0
+    print(f"Recalculated total feerate: {calculated_total_feerate:.2f} sat/vB")
+    
+    assert abs(calculated_total_feerate - target_feerate) < 0.1, (
+        f"Total feerate mismatch: target={target_feerate}, calculated={calculated_total_feerate:.2f}"
     )
+    assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
+        f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
+    )
+    
+    # Verify YOLO mode response includes transaction ID
+    assert 'getrawtransaction_command' in result, "YOLO mode response must include getrawtransaction_command"
 
 if __name__ == "__main__":
     from pyln.testing.fixtures import setup_node_factory
     node_factory = setup_node_factory()
-    test_bumpchannelopen_high_parent_fee(node_factory)
+    test_yolo_mode(node_factory)

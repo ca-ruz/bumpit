@@ -288,6 +288,28 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=None):
     parent_fee_rate = parent_fee / parent_vsize  # sat/vB
     plugin.log(f"[YANKEE] Contents of parent_fee_rate: {parent_fee_rate}")
 
+    # Check if parent feerate is already sufficient
+    try:
+        target_feerate = float(fee_rate)
+    except ValueError:
+        raise CPFPError("Invalid fee_rate: must be numeric")
+    if parent_fee_rate >= target_feerate:
+        plugin.log(f"[INFO] Skipping CPFP: parent feerate {parent_fee_rate:.2f} sat/vB "
+                   f"meets or exceeds target {target_feerate:.2f} sat/vB")
+        return {
+            "message": "No CPFP needed: parent feerate exceeds target",
+            "parent_fee": int(parent_fee),
+            "parent_vsize": int(parent_vsize),
+            "parent_feerate": float(parent_fee_rate),
+            "child_fee": 0,
+            "child_vsize": 0,
+            "child_feerate": 0,
+            "total_fees": int(parent_fee),
+            "total_vsizes": int(parent_vsize),
+            "total_feerate": float(parent_fee_rate),
+            "desired_total_feerate": target_feerate
+        }
+
     # Calculate the child's fee
     desired_child_fee = calculate_child_fee(
         parent_fee,
