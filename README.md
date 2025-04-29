@@ -1,4 +1,4 @@
-# BumpChannelOpen Plugin
+# BumpIt Plugin
 
 A Core Lightning plugin to create CPFP (Child Pays For Parent) transactions for opening lightning channels.
 
@@ -13,8 +13,8 @@ A Core Lightning plugin to create CPFP (Child Pays For Parent) transactions for 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/bumpchannelopen.git
-cd bumpchannelopen
+git clone https://github.com/ca-ruz/bumpit.git
+cd bumpit
 ```
 
 2. Create and activate a virtual environment:
@@ -38,7 +38,7 @@ pip install -r requirements-dev.txt
 
 2. Start the plugin:
 ```bash
-lightning-cli plugin start $PWD/bumpchannelopen.py
+lightning-cli plugin start $PWD/bumpit.py
 ```
 
 3. Find a peer ID you want to open a channel with
@@ -122,7 +122,7 @@ fund_nodes
 
 4. Start the plugin (from the plugin directory):
 ```bash
-l1-cli plugin start $PWD/bumpchannelopen.py
+l1-cli plugin start $PWD/bumpit.py
 ```
 
 5. Get the funding transaction details:

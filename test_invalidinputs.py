@@ -3,7 +3,7 @@ from pyln.client import RpcError
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 
-pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpchannelopen.py")}
+pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 500000  # Match emergency_reserve for consistency
 
 def test_bumpchannelopen_invalid_utxo(node_factory):

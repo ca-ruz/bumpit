@@ -2,7 +2,7 @@ import os
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, FUNDAMOUNT, BITCOIND_CONFIG
 
-pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpchannelopen.py")}
+pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 1000000  # Match the manual test amount of 1M sats
 
 def calculate_parent_tx_details(bitcoind, txid):
