@@ -5,9 +5,11 @@ A Core Lightning plugin to create CPFP (Child Pays For Parent) transactions for 
 ## Prerequisites
 
 - Python 3.7+
-- Core Lightning
+- Core Lightning 24.11+
 - Bitcoin Core
 - txindex in Bitcoin Core
+
+Note: This plugin does not work with lightning version 24.08 because it uses the listaddresses rpc call, which was introduced in version 24.11.
 
 ## Installation
 
