@@ -44,7 +44,6 @@ def test_bumpchannelopen_insufficient_funds(node_factory):
             txid=funding_txid,
             vout=change_output['output'],
             fee_rate=1000,  # High feerate to trigger insufficient funds
-            address=l1.rpc.newaddr()['bech32']
         )
         print(f"bump_result: {result}")
         assert False, "Expected bump to fail due to insufficient funds"

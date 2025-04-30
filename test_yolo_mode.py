@@ -83,7 +83,6 @@ def test_yolo_mode(node_factory):
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
-        address=l1.rpc.newaddr()['bech32'],
         yolo="yolo"
     )
     

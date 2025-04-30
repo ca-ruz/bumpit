@@ -55,12 +55,12 @@ l1-cli listfunds
 
 6. Create a CPFP transaction:
 ```bash
-l1-cli bumpchannelopen <txid> <vout> <fee_rate> "$(l1-cli newaddr | jq -r '.bech32')" [yolo]
+l1-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
 ```
 
 Note: `fee_rate` should be specified in sat/vB.
 
-Optional: Type the word `yolo` as an argument after the address or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
+Optional: Type the word `yolo` as an argument after the `fee_rate` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
 
 ## Running Tests
 
@@ -132,11 +132,11 @@ l1-cli listfunds
 
 6. Create a CPFP transaction:
 ```bash
-l1-cli bumpchannelopen <txid> <vout> <fee_rate> "$(l1-cli newaddr | jq -r '.bech32')" [yolo]
+l1-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
 ```
 Note: `fee_rate` should be specified in sat/vB.
     
-Optional: Type the word `yolo` as an argument after the address or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction.
+Optional: Type the word `yolo` as an argument after the `fee_rate` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction.
 
 ## Plugin Configuration
 

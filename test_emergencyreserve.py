@@ -34,13 +34,11 @@ def test_bumpchannelopen_emergency_reserve(node_factory):
 
     # Bump with emergency reserve needed
     target_feerate = 3
-    new_address = l1.rpc.newaddr()['bech32']
     try:
         result = l1.rpc.bumpchannelopen(
             txid=funding_txid,
             vout=change_output['output'],
-            fee_rate=target_feerate,
-            address=new_address
+            fee_rate=target_feerate
         )
     except Exception as e:
         assert False, f"Bumpchannelopen failed: {e}"

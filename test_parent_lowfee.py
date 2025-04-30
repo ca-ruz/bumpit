@@ -88,12 +88,10 @@ def test_bumpchannelopen(node_factory):
     
     # Call bumpchannelopen with a dry run to trigger additional plugin logs
     target_feerate = 5  # Desired total feerate in sat/vB
-    new_address = l1.rpc.newaddr()['bech32']
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
-        address=new_address,
         yolo="dryrun"  # Trigger dry run logging without broadcasting
     )
     

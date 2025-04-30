@@ -82,7 +82,7 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
 
 
 @plugin.method("bumpchannelopen")
-def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=None):
+def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     """
     Creates a CPFP transaction for a specific parent output.
     
@@ -90,7 +90,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=None):
         txid: Parent transaction ID
         vout: Output index
         fee_rate: Desired fee rate in sat/vB
-        address: Destination address for change
         yolo: Argument to send transaction automatically
     """
 
@@ -102,8 +101,12 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, address, yolo=None):
     # Input validation
     if not txid or vout is None:
         raise CPFPError("Both txid and vout are required.")
+    
+    new_addr = plugin.rpc.newaddr()
+    address = new_addr.get('bech32')
 
-    plugin.log(f"[BRAVO] Input Parameters - txid: {txid}, vout: {vout}, fee_rate: {fee_rate}, address: {address}")
+    plugin.log(f"[BRAVO] Input Parameters - txid: {txid}, vout: {vout}, fee_rate: {fee_rate}")
+    plugin.log(f"[BRAVO2.0] Got new bech32 address from node: address: {address}")
 
     # Step 1: Fetch the network information from the Lightning node
     info = plugin.rpc.getinfo()

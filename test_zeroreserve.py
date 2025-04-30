@@ -34,13 +34,11 @@ def test_bumpchannelopen_zero_reserve(node_factory):
 
     # Bump channel open with higher feerate
     target_feerate = 10  # Higher feerate for distinct response
-    new_address = l1.rpc.newaddr()['bech32']
     try:
         result = l1.rpc.bumpchannelopen(
             txid=funding_txid,
             vout=change_output['output'],
-            fee_rate=target_feerate,
-            address=new_address
+            fee_rate=target_feerate
         )
     except Exception as e:
         assert False, f"Bumpchannelopen failed: {e}"

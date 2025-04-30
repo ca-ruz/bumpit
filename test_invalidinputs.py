@@ -35,8 +35,7 @@ def test_bumpchannelopen_invalid_utxo(node_factory):
         l1.rpc.bumpchannelopen(
             txid=invalid_txid,
             vout=0,  # Valid vout index, but txid is invalid
-            fee_rate=3,
-            address=l1.rpc.newaddr()['bech32']
+            fee_rate=3
         )
         assert False, "Expected bump to fail with invalid txid"
     except RpcError as e:
@@ -48,8 +47,7 @@ def test_bumpchannelopen_invalid_utxo(node_factory):
         l1.rpc.bumpchannelopen(
             txid=funding_txid,
             vout=999,  # Invalid vout
-            fee_rate=3,
-            address=l1.rpc.newaddr()['bech32']
+            fee_rate=3
         )
         assert False, "Expected bump to fail with invalid vout"
     except RpcError as e:
