@@ -52,12 +52,12 @@ lightning-cli fundchannel <peer_id> <amount_in_sats> [feerate]
 
 5. Get the funding transaction details:
 ```bash
-l1-cli listfunds
+lightning-cli listfunds
 ```
 
 6. Create a CPFP transaction:
 ```bash
-l1-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
+lightning-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
 ```
 
 Note: `fee_rate` should be specified in sat/vB.
