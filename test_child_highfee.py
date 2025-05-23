@@ -36,7 +36,7 @@ def calculate_parent_tx_details(bitcoind, txid):
         "feerate": feerate
     }
 
-def test_high_feerate(node_factory):
+def test_child_highfee(node_factory):
     """
     Test bumpchannelopen with a high target feerate (1000 sat/vB) to ensure it handles
     large child fees correctly without crashing.
@@ -136,8 +136,3 @@ def test_high_feerate(node_factory):
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
         f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
     )
-
-if __name__ == "__main__":
-    from pyln.testing.fixtures import setup_node_factory
-    node_factory = setup_node_factory()
-    test_high_feerate(node_factory)

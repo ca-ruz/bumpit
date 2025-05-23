@@ -141,8 +141,3 @@ def test_yolo_mode(node_factory):
     
     # Verify YOLO mode response includes transaction ID
     assert 'getrawtransaction_command' in result, "YOLO mode response must include getrawtransaction_command"
-
-if __name__ == "__main__":
-    from pyln.testing.fixtures import setup_node_factory
-    node_factory = setup_node_factory()
-    test_yolo_mode(node_factory)

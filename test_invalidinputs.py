@@ -6,7 +6,7 @@ from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 500000  # Match emergency_reserve for consistency
 
-def test_bumpchannelopen_invalid_utxo(node_factory):
+def test_invalidinputs(node_factory):
     opts = {
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
@@ -31,26 +31,24 @@ def test_bumpchannelopen_invalid_utxo(node_factory):
 
     # Test invalid txid
     invalid_txid = "0000000000000000000000000000000000000000000000000000000000000000"
-    try:
-        l1.rpc.bumpchannelopen(
-            txid=invalid_txid,
-            vout=0,  # Valid vout index, but txid is invalid
-            fee_rate=3
-        )
-        assert False, "Expected bump to fail with invalid txid"
-    except RpcError as e:
-        print(f"Expected error (invalid txid): {e}")
-        assert "not found" in str(e).lower() or "invalid" in str(e).lower(), f"Expected invalid txid error, got {e}"
+    result = l1.rpc.bumpchannelopen(
+        txid=invalid_txid,
+        vout=0,  # Valid vout index, but txid is invalid
+        fee_rate=3
+    )
+    assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    assert "message" in result, f"Expected error message, got {result}"
+    print(f"Expected error (invalid txid): {result['message']}")
+    assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid txid error, got {result['message']}"
 
     # Test invalid vout
-    try:
-        l1.rpc.bumpchannelopen(
-            txid=funding_txid,
-            vout=999,  # Invalid vout
-            fee_rate=3
-        )
-        assert False, "Expected bump to fail with invalid vout"
-    except RpcError as e:
-        print(f"Expected error (invalid vout): {e}")
-        assert "not found" in str(e).lower() or "invalid" in str(e).lower(), f"Expected invalid vout error, got {e}"
-        
+    result = l1.rpc.bumpchannelopen(
+        txid=funding_txid,
+        vout=999,  # Invalid vout
+        fee_rate=3
+    )
+    assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    assert "message" in result, f"Expected error message, got {result}"
+    print(f"Expected error (invalid vout): {result['message']}")
+    assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid vout error, got {result['message']}"
+    

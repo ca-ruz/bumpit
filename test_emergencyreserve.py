@@ -5,7 +5,7 @@ from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 500000
 
-def test_bumpchannelopen_emergency_reserve(node_factory):
+def test_emergencyreserve(node_factory):
     opts = {
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],

@@ -70,16 +70,19 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
     :param desired_total_feerate: Desired total feerate (in sat/vB).
     :return: The required child transaction fee (in satoshis).
     """
-    # Calculate the total required fee for both transactions combined
-    total_vsize = parent_vsize + child_vsize
-    required_total_fee = desired_total_feerate * total_vsize
-    
-    # Calculate how much the child needs to pay to achieve the desired total feerate
-    child_fee = required_total_fee - parent_fee
-    
-    # Ensure the child fee is at least enough to meet minimum relay fee
-    return child_fee
-
+    try:
+        # Convert inputs to float to ensure compatibility
+        parent_fee = float(parent_fee)
+        desired_total_feerate = float(desired_total_feerate)
+        # Calculate the total required fee for both transactions combined
+        total_vsize = parent_vsize + child_vsize
+        required_total_fee = desired_total_feerate * total_vsize
+        # Calculate how much the child needs to pay to achieve the desired total feerate
+        child_fee = required_total_fee - parent_fee
+        # Ensure the child fee is at least enough to meet minimum relay fee
+        return child_fee
+    except (TypeError, ValueError) as e:
+        raise CPFPError("Invalid fee calculation: incompatible number types") from e
 
 @plugin.method("bumpchannelopen")
 def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
@@ -100,7 +103,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     # Input validation
     if not txid or vout is None:
-        raise CPFPError("Both txid and vout are required.")
+        return {"code": -32600, "message": "Both txid and vout are required."}
     
     new_addr = plugin.rpc.newaddr()
     address = new_addr.get('bech32')
@@ -114,7 +117,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     plugin.log(f"[CHARLIE] Network detected: {network}")
 
     if not network:
-        raise CPFPError("Network information is missing.")
+        return {"code": -32600, "message": "Network information is missing."}
     plugin.log(f"[DELTA] Network detected: {network}")
 
     # Step 2: Get list of available UTXOs from the Lightning node
@@ -124,13 +127,13 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     # Check if 'outputs' key exists and log its contents
     utxos = funds.get("outputs", [])
     if not utxos:
-        raise CPFPError("No unspent transaction outputs found.")
+        return {"code": -32600, "message": "No unspent transaction outputs found."}
 
     # Log all UTXOs before filtering (optional, can be removed for cleaner logs)
-    # plugin.log("[DEBUG] All UTXOs before filtering:")
-    # for idx, utxo in enumerate(utxos):
-    #     reserved_status = utxo.get("reserved", False)
-    #     plugin.log(f"[DEBUG] UTXO {idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat, reserved={reserved_status}")
+    plugin.log("[DEBUG] All UTXOs before filtering:")
+    for idx, utxo in enumerate(utxos):
+        reserved_status = utxo.get("reserved", False)
+        plugin.log(f"[DEBUG] UTXO {idx}: txid={utxo['txid']} vout={utxo['output']} amount={utxo['amount_msat']} msat, reserved={reserved_status}")
 
     # Filter out reserved UTXOs
     available_utxos = [utxo for utxo in utxos if not utxo.get("reserved", False)]
@@ -154,7 +157,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         plugin.log(f"[DEBUG] Available UTXOs contents: {available_utxos}")
 
     if not available_utxos:
-        raise CPFPError("No unreserved unspent transaction outputs found.")
+        return {"code": -32600, "message": "No unreserved unspent transaction outputs found."}
 
     # Proceed with selecting a UTXO
     selected_utxo = None
@@ -164,7 +167,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
             break
 
     if not selected_utxo:
-        raise CPFPError(f"UTXO {txid}:{vout} not found in available UTXOs.")
+        return {"code": -32600, "message": f"UTXO {txid}:{vout} not found in available UTXOs."}
 
     # Log the selected UTXO
     plugin.log(f"[DEBUG] Selected UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}, amount={selected_utxo['amount_msat']} msat")
@@ -178,7 +181,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     # Step 4: Fetch UTXO details and convert amount
     amount_msat = selected_utxo["amount_msat"]
     if not amount_msat:
-        raise CPFPError(f"UTXO {txid}:{vout} not found or already spent.")
+        return {"code": -32600, "message": f"UTXO {txid}:{vout} not found or already spent."}
 
     # Log the amount in msat and convert to sats
     amount = amount_msat / 100_000_000_000  # Convert msat to BTC
@@ -186,9 +189,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     # Get all addresses associated with the node
     listaddresses_result = plugin.rpc.listaddresses()
-
-    # Debug log to inspect the returned addresses
-    # plugin.log(f"[DEBUG] listaddresses result: {listaddresses_result}")
 
     # Extract bech32 and p2tr addresses from the result
     valid_addresses = [
@@ -249,18 +249,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     except CPFPError as e:
         plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
+        return {"code": -32600, "message": str(e)}
     except RpcError as e:
         plugin.log(f"[SIERRA] RPC Error during withdrawal: {str(e)}")
-        raise RpcError(f"RPC Error while withdrawing funds: {str(e)}")
+        return {"code": -32600, "message": f"RPC Error: {str(e)}"}
     except Exception as e:
         plugin.log(f"[TANGO] General error occurred: {str(e)}")
-        raise Exception(f"Error occurred: {str(e)}")
+        return {"code": -32600, "message": f"Unexpected error: {str(e)}"}
 
     # Get parent's tx info
-
-    # Hardcoded values, user should pass in their host, port, rpcuser and rpcpassword
-    # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:18443"%("__cookie__", "12bacf16e6963c18ddfe8fe18ac275300d1ea40ed4738216d89bcf3a1b707ed3"))
     tx = rpc_connection.getrawtransaction(txid, True)
     plugin.log(f"[TANGO - WHISKEY] Contents tx: {tx}")
 
@@ -295,7 +292,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     try:
         target_feerate = float(fee_rate)
     except ValueError:
-        raise CPFPError("Invalid fee_rate: must be numeric")
+        return {"code": -32600, "message": "Invalid fee_rate: must be numeric"}
     if parent_fee_rate >= target_feerate:
         plugin.log(f"[INFO] Skipping CPFP: parent feerate {parent_fee_rate:.2f} sat/vB "
                    f"meets or exceeds target {target_feerate:.2f} sat/vB")
@@ -332,7 +329,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     plugin.log(f"[UNIFORM] amount: {amount}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
 
     # Step 6: Use bitcoin rpc call `createpsbt` a second time using the amount - the child's_fee
-
     try:
         # Connect to bitcoin-cli
         rpc_connection = connect_bitcoincli(
@@ -375,16 +371,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     except CPFPError as e:
         plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
+        return {"code": -32600, "message": str(e)}
     except RpcError as e:
         plugin.log(f"[SIERRA] RPC Error during withdrawal: {str(e)}")
-        raise RpcError(f"RPC Error while withdrawing funds: {str(e)}")
+        return {"code": -32600, "message": f"RPC Error: {str(e)}"}
     except Exception as e:
         plugin.log(f"[TANGO] General error occurred: {str(e)}")
-        raise Exception(f"Error occurred: {str(e)}")
+        return {"code": -32600, "message": f"Unexpected error: {str(e)}"}
 
     try:
-
         # Connect to bitcoin-cli
         rpc_connection = connect_bitcoincli(
             rpc_user=plugin.get_option('bump_brpc_user'),
@@ -402,7 +397,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         second_child_psbt = second_signed_psbt.get("signed_psbt")
 
         if not second_child_psbt:
-            raise CPFPError("Signing failed. No signed PSBT returned.")
+            return {"code": -32600, "message": "Signing failed. No signed PSBT returned."}
 
         plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
 
@@ -412,7 +407,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
         finalized_psbt_base64 = finalized_psbt.get("psbt")
         if not finalized_psbt_base64:
-            raise CPFPError("PSBT was not properly finalized. No PSBT hex returned.")
+            return {"code": -32600, "message": "PSBT was not properly finalized. No PSBT hex returned."}
 
         # Log the raw PSBT for inspection
         plugin.log(f"[DEBUG] Finalized PSBT (base64: {finalized_psbt_base64}")
@@ -436,7 +431,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
         final_tx_hex = fully_finalized.get("hex")
         if not final_tx_hex:
-            raise CPFPError("Could not extract hex from finalized PSBT.")
+            return {"code": -32600, "message": "Could not extract hex from finalized PSBT."}
 
         # Decode raw transaction
         decoded_tx = rpc_connection.decoderawtransaction(final_tx_hex)
@@ -448,13 +443,13 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     except CPFPError as e:
         plugin.log(f"[ALPHA-JULIET] CPFPError occurred: {str(e)}")
-        raise CPFPError("Error creating CPFP transaction.")
+        return {"code": -32600, "message": str(e)}
     except RpcError as e:
         plugin.log(f"[ALPHA-KILO] RPC Error during withdrawal: {str(e)}")
-        raise CPFPError(f"RPC Error while withdrawing funds: {str(e)}")
+        return {"code": -32600, "message": f"RPC Error: {str(e)}"}
     except Exception as e:
         plugin.log(f"[ALPHA-LIMA] General error occurred while withdrawing: {str(e)}")
-        raise CPFPError(f"Error while withdrawing funds: {str(e)}")
+        return {"code": -32600, "message": f"Unexpected error: {str(e)}"}
 
     # Unreserve inputs, just for testing!
     # plugin.rpc.unreserveinputs(psbt=rpc_result2)
@@ -470,12 +465,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
 
     # Calculate the total fee rate (total_fees / total_vsizes)
     total_feerate = total_fees / total_vsizes  # This will give the fee rate in sat/vbyte
-
-
-
-
-
-
 
     # Default response
     response = {
@@ -534,10 +523,9 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
                     "desired_total_feerate": fee_rate,  # Desired total fee rate
                 } 
 
-
             except Exception as e:
                 plugin.log(f"[ERROR] Error sending raw transaction: {str(e)}")
-                raise Exception(f"Error sending raw transaction: {str(e)}")
+                return {"code": -32600, "message": f"Error sending transaction: {str(e)}"}
         else:
             # Mistyped YOLO
             plugin.rpc.unreserveinputs(psbt=finalized_psbt_base64)

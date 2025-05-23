@@ -5,7 +5,7 @@ from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 500000  # Match emergency_reserve for consistency
 
-def test_bumpchannelopen_high_parent_fee(node_factory):
+def test_parent_highfee(node_factory):
     """
     Test bumpchannelopen when the parent transaction has a high feerate (≥10 sat/vB),
     ensuring the plugin skips CPFP and returns an appropriate message.
