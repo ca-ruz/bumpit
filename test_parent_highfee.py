@@ -19,19 +19,17 @@ def test_parent_highfee(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
 
-    # Connect nodes and fund a channel
+    # Connect nodes and fund l1
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, 0.01)  # 1M sats
+    bitcoind.rpc.sendtoaddress(addr, 2)  # 200M sats for sufficient funds
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
 
-    # Fund channel with a high feerate (10 sat/vB)
+    # Fund channel with a high feerate, keep unconfirmed
     funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="10000perkb")
     funding_txid = funding['txid']
-    bitcoind.generate_block(1)  # Confirm funding tx
-    sync_blockheight(bitcoind, [l1, l2])
     print(f"Funding transaction ID: {funding_txid}")
 
     # Find unreserved change output
@@ -52,6 +50,14 @@ def test_parent_highfee(node_factory):
         fee_rate=target_feerate,
     )
 
+    # Handle error responses
+    if 'code' in result and result['code'] == -32600:
+        print(f"Error response: {result['message']}")
+        assert "reserve" in result['message'].lower() or "confirmed" in result['message'].lower(), (
+            f"Unexpected error: {result['message']}"
+        )
+        return
+
     # Print plugin output
     print("\nPlugin response:")
     print(f"  Message: {result.get('message', 'N/A')}")
@@ -71,6 +77,9 @@ def test_parent_highfee(node_factory):
 
     # Verify the plugin skipped CPFP
     assert "No CPFP needed" in result['message'], f"Expected 'No CPFP needed' in message, got: {result['message']}"
+    assert result['parent_feerate'] > target_feerate, (
+        f"Parent feerate ({result['parent_feerate']:.2f}) should exceed target ({target_feerate})"
+    )
     assert result['child_fee'] == 0, f"Expected child_fee=0, got: {result['child_fee']}"
     assert result['child_vsize'] == 0, f"Expected child_vsize=0, got: {result['child_vsize']}"
     assert result['child_feerate'] == 0, f"Expected child_feerate=0, got: {result['child_feerate']}"

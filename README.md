@@ -64,6 +64,9 @@ Note: `fee_rate` should be specified in sat/vB.
 
 Optional: Type the word `yolo` as an argument after the `fee_rate` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
 
+## Emergency Reserve Warning
+The `bumpchannelopen` command may spend outputs that contribute to the node's 25,000 sat emergency reserve. If the fee is too high, this could reduce unreserved funds below the required reserve, potentially affecting node operation. A warning is issued in the response, and the operation is blocked unless `yolo` mode is used. Always verify unreserved funds with `listfunds` before bumping.
+
 ## Running Tests
 
 The test suite uses Core Lightning's test framework and requires a regtest environment.

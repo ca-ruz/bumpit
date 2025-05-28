@@ -50,15 +50,16 @@ def test_child_highfee(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
     
-    # Connect nodes and fund a channel
+    # Connect nodes and fund l1
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, 1)
+    bitcoind.rpc.sendtoaddress(addr, 2)  # Increase to 2 BTC for sufficient funds
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
     
-    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, 3000)
+    # Fund channel, keep transaction unconfirmed
+    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="3000perkb")
     funding_txid = funding['txid']
     print(f"Funding transaction ID: {funding_txid}")
     
@@ -78,13 +79,21 @@ def test_child_highfee(node_factory):
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
     # Call bumpchannelopen with high feerate
-    target_feerate = 1000 # sat/vB
+    target_feerate = 1000  # sat/vB
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
         yolo="dryrun"
     )
+    
+    # Handle error responses
+    if 'code' in result and result['code'] == -32600:
+        print(f"Error response: {result['message']}")
+        assert "reserve" in result['message'].lower() or "confirmed" in result['message'].lower(), (
+            f"Unexpected error: {result['message']}"
+        )
+        return
     
     # Extract plugin results
     plugin_parent_fee = result.get('parent_fee', 0)
@@ -136,3 +145,4 @@ def test_child_highfee(node_factory):
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
         f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
     )
+    

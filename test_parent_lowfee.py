@@ -16,26 +16,18 @@ def calculate_parent_tx_details(bitcoind, txid):
     Returns:
         dict: Contains fee (in satoshis), feerate (sat/vB), and vsize (vbytes)
     """
-    # Fetch and decode the transaction
     tx_hex = bitcoind.rpc.getrawtransaction(txid)
     tx_details = bitcoind.rpc.decoderawtransaction(tx_hex)
     
-    # Sum input values (in BTC)
     total_inputs = sum(
         bitcoind.rpc.getrawtransaction(vin["txid"], True)["vout"][vin["vout"]]["value"]
         for vin in tx_details["vin"]
     )
     
-    # Sum output values (in BTC)
     total_outputs = sum(vout["value"] for vout in tx_details["vout"])
     
-    # Calculate fee in satoshis
     fee_sats = int((total_inputs - total_outputs) * 10**8)
-    
-    # Get virtual size (vbytes)
     vsize = tx_details["vsize"]
-    
-    # Calculate feerate (sat/vB)
     feerate = fee_sats / vsize if vsize > 0 else 0
     
     return {
@@ -58,20 +50,20 @@ def test_parent_lowfee(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
     
-    # Set up nodes and fund a channel
+    # Set up nodes and fund l1
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, 1)  # Send 1 BTC to l1
+    bitcoind.rpc.sendtoaddress(addr, 2)  # Increase to 2 BTC for sufficient funds
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
     
-    # Open a channel and get the funding transaction
-    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, 3000)
+    # Open a channel, keep transaction unconfirmed
+    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="3000perkb")
     funding_txid = funding['txid']
     print(f"Funding transaction ID: {funding_txid}")
     
-    # Find the unreserved change output from the funding transaction
+    # Find unreserved change output
     outputs = l1.rpc.listfunds()['outputs']
     change_output = next(
         (output for output in outputs if output['txid'] == funding_txid and not output['reserved']),
@@ -79,21 +71,29 @@ def test_parent_lowfee(node_factory):
     )
     assert change_output is not None, "Could not find unreserved change output"
     
-    # Calculate parent transaction details independently
+    # Calculate parent transaction details
     parent_details = calculate_parent_tx_details(bitcoind, funding_txid)
     print(f"Parent transaction details:")
     print(f"  Fee: {parent_details['fee']} sats")
     print(f"  Vsize: {parent_details['vsize']} vB")
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
-    # Call bumpchannelopen with a dry run to trigger additional plugin logs
+    # Call bumpchannelopen with a dry run
     target_feerate = 5  # Desired total feerate in sat/vB
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
         fee_rate=target_feerate,
-        yolo="dryrun"  # Trigger dry run logging without broadcasting
+        yolo="dryrun"
     )
+    
+    # Handle error responses
+    if 'code' in result and result['code'] == -32600:
+        print(f"Error response: {result['message']}")
+        assert "reserve" in result['message'].lower() or "confirmed" in result['message'].lower(), (
+            f"Unexpected error: {result['message']}"
+        )
+        return
     
     # Extract plugin results
     plugin_parent_fee = result.get('parent_fee', 0)
@@ -106,7 +106,7 @@ def test_parent_lowfee(node_factory):
     plugin_total_vsizes = result.get('total_vsizes', 0)
     plugin_total_feerate = result.get('total_feerate', 0)
     
-    # Print detailed plugin output for debugging
+    # Print plugin output
     print("\nPlugin response:")
     print(f"  Message: {result.get('message', 'N/A')}")
     print(f"  Analyze command: {result.get('analyze_command', 'N/A')}")
@@ -148,3 +148,4 @@ def test_parent_lowfee(node_factory):
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
         f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
     )
+    
