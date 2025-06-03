@@ -3,9 +3,9 @@ from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
-FUNDAMOUNT = 74000  # Channel funding amount in satoshis
-INITIAL_FUNDING = 100000  # Initial wallet funding in satoshis
-EMERGENCY_RESERVE = 25000  # Minimum wallet balance in satoshis
+FUNDAMOUNT = 74000
+INITIAL_FUNDING = 100000
+EMERGENCY_RESERVE = 25000
 
 def test_emergency_reserve(node_factory):
     opts = {
@@ -16,33 +16,63 @@ def test_emergency_reserve(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
 
-    # Fund l1's wallet with 100,000 sats
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     addr = l1.rpc.newaddr()['bech32']
     l1.bitcoin.rpc.sendtoaddress(addr, INITIAL_FUNDING / 1e8)
     l1.bitcoin.generate_block(1)
     sync_blockheight(l1.bitcoin, [l1, l2])
 
-    # Open a channel with 74,000 sats (unconfirmed)
     funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="250perkb")
     assert funding['txid'] in l1.bitcoin.rpc.getrawmempool()
+    funding_txid = funding['txid']
+    funding_vout = funding['outnum']
 
-    # Verify wallet balance is at least 25,000 sats
+    # Get funding transaction details to identify change output
+    tx_details = l1.bitcoin.rpc.getrawtransaction(funding_txid, True)
+    change_vout = None
+    for vout in range(len(tx_details['vout'])):
+        if vout != funding_vout:  # Change is the non-funding vout
+            change_vout = vout
+            break
+    assert change_vout is not None, f"No change vout found in funding tx {funding_txid}"
+    change_utxo = {
+        'txid': funding_txid,
+        'vout': change_vout,
+        'amount_msat': int(float(tx_details['vout'][change_vout]['value']) * 1e8) * 1000
+    }
+
     funds = l1.rpc.listfunds()
     total_balance = sum(output["amount_msat"] / 1000 for output in funds["outputs"])
-    assert total_balance >= EMERGENCY_RESERVE, f"Wallet balance {total_balance} sats below reserve {EMERGENCY_RESERVE} sats"
+    print(f"Total balance: {total_balance} sats")
+    assert total_balance >= EMERGENCY_RESERVE, f"Wallet balance {total_balance} below {EMERGENCY_RESERVE}"
 
-    # Select a non-reserved UTXO
-    available_utxos = [utxo for utxo in funds["outputs"] if not utxo.get("reserved", False)]
-    if not available_utxos:
-        print(f"Success: No non-reserved UTXOs available, reserve protected by CLN (balance: {total_balance} sats)")
-        return
+    # Verify change UTXO in listfunds
+    available_utxos = [utxo for utxo in funds["outputs"] if not utxo.get("reserved", False) and utxo["txid"] == change_utxo["txid"] and utxo["output"] == change_utxo["vout"]]
+    assert len(available_utxos) == 1, f"Expected 1 change UTXO, got {len(available_utxos)}"
+    current_unreserved = sum(utxo["amount_msat"] / 1000 for utxo in available_utxos)
+    print(f"Change UTXO balance (txid={change_utxo['txid']}, vout={change_utxo['vout']}): {current_unreserved} sats")
 
+    # Adjust to ~26,000 sats unreserved
+    target_balance = 26000
+    if current_unreserved > target_balance + 2000:
+        excess = current_unreserved - target_balance - 1000
+        if excess > 0:
+            dummy_addr = l2.rpc.newaddr()['bech32']
+            l1.rpc.withdraw(dummy_addr, int(excess * 1000), feerate="100perkb")
+            l1.bitcoin.generate_block(1)
+            sync_blockheight(l1.bitcoin, [l1, l2])
+            funds = l1.rpc.listfunds()
+            available_utxos = [utxo for utxo in funds["outputs"] if not utxo.get("reserved", False) and utxo["txid"] == change_utxo["txid"] and utxo["output"] == change_utxo["vout"]]
+            current_unreserved = sum(utxo["amount_msat"] / 1000 for utxo in available_utxos)
+            print(f"After withdrawal, unreserved balance: {current_unreserved} sats")
+            assert 25000 <= current_unreserved <= 27000, f"Unreserved balance {current_unreserved} not ~26000 sats"
+
+    # Bump using change UTXO
     utxo = available_utxos[0]
-    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=3)
+    print(f"Paying CPFP with: txid={utxo['txid']}, vout={utxo['output']}, amount={utxo['amount_msat']/1000} sats")
+    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=10)
 
-    # Assert bump fails to protect reserve
     assert "code" in result and result["code"] == -32600, f"Expected reserve error, got {result}"
-    assert "reserve" in result["message"].lower(), f"Expected reserve violation message, got {result['message']}"
-    print(f"Success: Emergency reserve protected: {result['message']}")
+    assert "reserve" in result["message"].lower(), f"Expected reserve message, got {result['message']}"
+    print(f"Success: Reserve protected: {result['message']}")
     
