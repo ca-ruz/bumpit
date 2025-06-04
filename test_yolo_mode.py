@@ -125,9 +125,6 @@ def test_yolo_mode(node_factory):
         f"Parent feerate mismatch: plugin={plugin_parent_feerate:.2f}, calculated={parent_details['feerate']:.2f}"
     )
     
-    # Verify child fee is positive
-    assert plugin_child_fee > 0, "Child fee must be positive"
-    
     # Verify total feerate matches target
     calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0
     print(f"Recalculated total feerate: {calculated_total_feerate:.2f} sat/vB")

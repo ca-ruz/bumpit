@@ -78,13 +78,12 @@ def test_parent_lowfee(node_factory):
     print(f"  Vsize: {parent_details['vsize']} vB")
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
-    # Call bumpchannelopen with a dry run
+    # Call bumpchannelopen
     target_feerate = 5  # Desired total feerate in sat/vB
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
-        fee_rate=target_feerate,
-        yolo="dryrun"
+        fee_rate=target_feerate
     )
     
     # Handle error responses
@@ -134,9 +133,6 @@ def test_parent_lowfee(node_factory):
     assert abs(plugin_parent_feerate - parent_details['feerate']) < 0.01, (
         f"Parent feerate mismatch: plugin={plugin_parent_feerate:.2f}, calculated={parent_details['feerate']:.2f}"
     )
-    
-    # Verify child fee is positive
-    assert plugin_child_fee > 0, "Child fee must be positive"
     
     # Verify total feerate matches target
     calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0

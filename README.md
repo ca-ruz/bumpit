@@ -130,9 +130,12 @@ fund_nodes
 l1-cli plugin start $PWD/bumpit.py
 ```
 
-5. Get the funding transaction details:
+5. Get the funding transaction txid and change vout:
 ```bash
-l1-cli listfunds
+l1-cli listfunds | jq '
+  [ .channels[] | select(.state == "DUALOPEND_AWAITING_LOCKIN") | .funding_txid ] as $target_txids
+  | [ .outputs[] | select(.txid as $output_txid | $target_txids | index($output_txid)) ]
+'
 ```
 
 6. Create a CPFP transaction:

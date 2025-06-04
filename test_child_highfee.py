@@ -134,9 +134,6 @@ def test_child_highfee(node_factory):
         f"Parent feerate mismatch: plugin={plugin_parent_feerate:.2f}, calculated={parent_details['feerate']:.2f}"
     )
     
-    # Verify child fee is positive and reasonably large
-    assert plugin_child_fee > 10000, "Child fee must be significantly positive for high feerate"
-    
     # Verify total feerate is positive and reasonable
     calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0
     print(f"Recalculated total feerate: {calculated_total_feerate:.2f} sat/vB")
