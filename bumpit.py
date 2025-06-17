@@ -291,10 +291,13 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
 
     if total_unreserved_sats - child_fee < 25000 and yolo != "yolo":
+        plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
         return {
             "code": -32600,
-            "message": f"Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve. Use 'yolo' to override."
+            "message": f"Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve. Use 'yolo' to override.",
+            "child_fee": child_fee
         }
+
     if yolo == "yolo" and total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Yolo mode enabled: Bypassing 25,000 sat reserve check, leaving {total_unreserved_sats - child_fee} sats")
 

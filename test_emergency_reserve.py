@@ -52,26 +52,14 @@ def test_emergency_reserve(node_factory):
     current_unreserved = sum(utxo["amount_msat"] / 1000 for utxo in available_utxos)
     print(f"Change UTXO balance (txid={change_utxo['txid']}, vout={change_utxo['vout']}): {current_unreserved} sats")
 
-    # Adjust to ~26,000 sats unreserved
-    target_balance = 26000
-    if current_unreserved > target_balance + 2000:
-        excess = current_unreserved - target_balance - 1000
-        if excess > 0:
-            dummy_addr = l2.rpc.newaddr()['bech32']
-            l1.rpc.withdraw(dummy_addr, int(excess * 1000), feerate="100perkb")
-            l1.bitcoin.generate_block(1)
-            sync_blockheight(l1.bitcoin, [l1, l2])
-            funds = l1.rpc.listfunds()
-            available_utxos = [utxo for utxo in funds["outputs"] if not utxo.get("reserved", False) and utxo["txid"] == change_utxo["txid"] and utxo["output"] == change_utxo["vout"]]
-            current_unreserved = sum(utxo["amount_msat"] / 1000 for utxo in available_utxos)
-            print(f"After withdrawal, unreserved balance: {current_unreserved} sats")
-            assert 25000 <= current_unreserved <= 27000, f"Unreserved balance {current_unreserved} not ~26000 sats"
-
     # Bump using change UTXO
     utxo = available_utxos[0]
     print(f"Paying CPFP with: txid={utxo['txid']}, vout={utxo['output']}, amount={utxo['amount_msat']/1000} sats")
-    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=10)
+    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=4)
 
+    # Sanity check to make sure we are not spending our emergency reserve
+    leftover_emergencyreserve = change_utxo['amount_msat'] // 1000 - int(result['child_fee'])
+    assert leftover_emergencyreserve < 25000
     assert "code" in result and result["code"] == -32600, f"Expected reserve error, got {result}"
     assert "reserve" in result["message"].lower(), f"Expected reserve message, got {result['message']}"
     print(f"Success: Reserve protected: {result['message']}")
