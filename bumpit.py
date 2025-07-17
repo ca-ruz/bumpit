@@ -19,7 +19,7 @@ plugin.add_option('bump_brpc_port', 18443, 'bitcoin rpc port')
 plugin.add_option(
     "yolo",
     None,
-    "Set to 'yolo' to bypass the 25,000 sat emergency reserve check. WARNING: May leave your wallet with insufficient funds for other operations!"
+    "Set to 'yolo' to broadcast transaction automatically after finalizing the psbt"
 )
 
 def connect_bitcoincli(rpc_user="__cookie__", rpc_password=None, host="127.0.0.1", port=18443):
@@ -106,8 +106,7 @@ def wrap_method(func):
 @plugin.method("bumpchannelopen",
                desc="Creates a CPFP transaction to bump the feerate of a parent output, with checks for emergency reserve.",
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
-                         "WARNING: Bumping an output may reduce unreserved funds below the 25,000 sat emergency reserve if the fee is too high, potentially affecting node operation. "
-                         "Use `listfunds` to check unreserved funds before bumping. Use `yolo` mode to override reserve protection.")
+                         "Use `listfunds` to check unreserved funds before bumping. Use `yolo` mode to broadcast transaction automatically")
 @wrap_method
 def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     """
@@ -290,16 +289,13 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         child_fee = max(0, float(desired_total_fee) - float(parent_fee))  # Convert to float
     plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
 
-    if total_unreserved_sats - child_fee < 25000 and yolo != "yolo":
+    if total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
         return {
             "code": -32600,
-            "message": f"Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve. Use 'yolo' to override.",
+            "message": f"Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.",
             "child_fee": child_fee
         }
-
-    if yolo == "yolo" and total_unreserved_sats - child_fee < 25000:
-        plugin.log(f"[WARNING] Yolo mode enabled: Bypassing 25,000 sat reserve check, leaving {total_unreserved_sats - child_fee} sats")
 
     # Step 10: Check feerate
     if parent_fee_rate >= target_feerate:
