@@ -460,7 +460,10 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         "total_feerate": total_feerate,
         "desired_total_feerate": float(fee_rate),
         "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
-        "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}"
+        "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}",
+        "notice": "Inputs used in this PSBT are now reserved. If you do not broadcast this transaction, you must manually unreserve them",
+        "unreserve_inputs_command": f"lightning-cli unreserveinputs {finalized_psbt_base64}",
+        "message3": "Alternatively, you can restart Core Lightning to release all input reservations"
     }
 
     # Step 19: Handle yolo mode
