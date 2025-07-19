@@ -118,6 +118,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         fee_rate: Desired fee rate in sat/vB (number)
         yolo: Set to 'yolo' to send transaction automatically
     """
+    reserved_inputs = []
     # Input validation
     if not isinstance(txid, str) or not txid:
         return {"code": -32600, "message": "Invalid or missing txid: must be a non-empty string"}
