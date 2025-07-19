@@ -103,6 +103,13 @@ def wrap_method(func):
             }
     return wrapper
 
+def try_unreserve_inputs(plugin, psbt):
+    try:
+        plugin.rpc.unreserveinputs(psbt=psbt)
+        plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
+    except Exception as e:
+        plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
+
 @plugin.method("bumpchannelopen",
                desc="Creates a CPFP transaction to bump the feerate of a parent output, with checks for emergency reserve.",
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
@@ -375,13 +382,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         plugin.log(f"[DEBUG] signpsbt response: {second_signed_psbt}")
         second_child_psbt = second_signed_psbt.get("signed_psbt", second_signed_psbt.get("psbt"))
         if not second_child_psbt:
-
-            try:
-                plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-            except Exception as e:
-                plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+            try_unreserve_inputs(plugin, reserved_psbt)
             return {"code": -32600, "message": "Signing failed. No signed PSBT returned."}
         plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
 
@@ -389,33 +390,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
         finalized_psbt_base64 = finalized_psbt.get("psbt")
         if not finalized_psbt_base64:
-
-            try:
-                plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-            except Exception as e:
-                plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+            try_unreserve_inputs(plugin, reserved_psbt)
             return {"code": -32600, "message": "PSBT was not properly finalized. No PSBT hex returned."}
     except (JSONRPCException, RpcError) as e:
         plugin.log(f"[SIERRA] RPC Error during PSBT signing: {str(e)}")
-
-        try:
-            plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-            plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-        except Exception as e:
-            plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+        try_unreserve_inputs(plugin, reserved_psbt)
         return {"code": -32600, "message": f"Failed to reserve or sign PSBT: {str(e)}"}
     except Exception as e:
         plugin.log(f"[ROMEO] Error during PSBT signing: {str(e)}")
-
-        try:
-            plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-            plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-        except Exception as e:
-            plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+        try_unreserve_inputs(plugin, reserved_psbt)
         return {"code": -32600, "message": f"Unexpected error during PSBT signing: {str(e)}"}
 
     # Step 16: Analyze final transaction
@@ -437,13 +420,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
         final_tx_hex = fully_finalized.get("hex")
         if not final_tx_hex:
-
-            try:
-                plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-            except Exception as e:
-                plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+            try_unreserve_inputs(plugin, reserved_psbt)
             return {"code": -32600, "message": "Could not extract hex from finalized PSBT."}
 
         decoded_tx = rpc_connection.decoderawtransaction(final_tx_hex)
@@ -454,23 +431,11 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         plugin.log(f"[DEBUG] Final transaction ID (txid): {txid}")
     except (JSONRPCException, RpcError) as e:
         plugin.log(f"[SIERRA] RPC Error during transaction analysis: {str(e)}")
-
-        try:
-            plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-            plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-        except Exception as e:
-            plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+        try_unreserve_inputs(plugin, reserved_psbt)
         return {"code": -32600, "message": f"Failed to analyze transaction: {str(e)}"}
     except Exception as e:
         plugin.log(f"[ROMEO] Error during transaction analysis: {str(e)}")
-
-        try:
-            plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-            plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-        except Exception as e:
-            plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+        try_unreserve_inputs(plugin, reserved_psbt)
         return {"code": -32600, "message": f"Unexpected error during transaction analysis: {str(e)}"}
 
     # Step 17: Calculate totals
@@ -522,36 +487,18 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
                 }
             except (JSONRPCException, RpcError) as e:
                 plugin.log(f"[SIERRA] RPC Error during transaction broadcast: {str(e)}")
-
-                try:
-                    plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                    plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-                except Exception as e:
-                    plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+                try_unreserve_inputs(plugin, reserved_psbt)
                 return {"code": -32600, "message": f"Failed to broadcast transaction: {str(e)}"}
             except Exception as e:
                 plugin.log(f"[ERROR] Error during transaction broadcast: {str(e)}")
-
-                try:
-                    plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                    plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-                except Exception as e:
-                    plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+                try_unreserve_inputs(plugin, reserved_psbt)
                 return {"code": -32600, "message": f"Unexpected error during transaction broadcast: {str(e)}"}
         else:
             try:
                 plugin.rpc.unreserveinputs(psbt=finalized_psbt_base64)
             except (JSONRPCException, RpcError) as e:
                 plugin.log(f"[SIERRA] RPC Error during unreserve: {str(e)}")
-
-                try:
-                    plugin.rpc.unreserveinputs(psbt=reserved_psbt)
-                    plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
-                except Exception as e:
-                    plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
-
+                try_unreserve_inputs(plugin, reserved_psbt)
                 return {"code": -32600, "message": f"Failed to unreserve inputs: {str(e)}"}
             response = {
                 "message": "You missed YOLO mode! You passed an argument, but not `yolo`. Transaction created but not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast. "
