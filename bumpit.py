@@ -115,7 +115,7 @@ def try_unreserve_inputs(plugin, psbt):
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
                          "Use `listfunds` to check unreserved funds before bumping. Use `yolo` mode to broadcast transaction automatically")
 @wrap_method
-def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
+def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
     """
     Creates a CPFP transaction for a specific parent output.
 
@@ -130,10 +130,29 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
         return {"code": -32600, "message": "Invalid or missing txid: must be a non-empty string"}
     if not isinstance(vout, int) or vout < 0:
         return {"code": -32600, "message": "Invalid vout: must be a non-negative integer"}
-    try:
-        float(fee_rate)
-    except (TypeError, ValueError):
-        return {"code": -32600, "message": "Invalid fee_rate: must be a number"}
+
+
+
+
+
+    if fee is not None:
+        try:
+            fee = int(fee)
+            plugin.log(f"[BRAVO-FEE] Using fixed child fee: {fee} sats")
+        except (TypeError, ValueError):
+            return {"code": -32600, "message": "Invalid fee: must be an integer"}
+    elif fee_rate is not None:
+        try:
+            fee_rate = float(fee_rate)
+            plugin.log(f"[BRAVO-FEERATE] Using feerate: {fee_rate} sat/vB")
+        except (TypeError, ValueError):
+            return {"code": -32600, "message": "Invalid fee_rate: must be a number"}
+    else:
+        return {"code": -32600, "message": "You must specify either fee or fee_rate"}
+
+
+
+   
 
     if yolo == "yolo":
         plugin.log("YOLO mode is ON!")
@@ -289,12 +308,29 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, yolo=None):
     # Step 9: Calculate child fee and check emergency reserve
     target_feerate = float(fee_rate)  # Validation already done
     total_unreserved_sats = sum(utxo["amount_msat"] // 1000 for utxo in available_utxos)
-    child_fee = 0
-    if parent_fee_rate < target_feerate:
-        child_vsize = first_child_vsize
-        desired_total_fee = target_feerate * (parent_vsize + child_vsize)
-        child_fee = max(0, float(desired_total_fee) - float(parent_fee))  # Convert to float
-    plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
+    
+
+
+
+    if fee is not None:
+        child_fee = fee
+        plugin.log(f"[FEE] Using user-specified fee: {child_fee} sats")
+    else:
+
+        if parent_fee_rate < target_feerate:
+            child_vsize = first_child_vsize
+            desired_total_fee = target_feerate * (parent_vsize + child_vsize)
+            child_fee = max(0, float(desired_total_fee) - float(parent_fee))  # Convert to float
+            plugin.log(f"[FEE] Calculated fee from feerate: {child_fee} sats")
+
+        else:
+            child_fee = 0
+            plugin.log(f"[FEE] No CPFP needed based on feerate")
+        
+        
+        
+        
+        plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
 
     if total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
