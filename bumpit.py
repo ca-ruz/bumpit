@@ -309,9 +309,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
     target_feerate = float(fee_rate)  # Validation already done
     total_unreserved_sats = sum(utxo["amount_msat"] // 1000 for utxo in available_utxos)
     
-
-
-
     if fee is not None:
         desired_child_fee = fee
         plugin.log(f"[FEE] Using user-specified desired child fee: {desired_child_fee} sats")
@@ -335,10 +332,8 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
             plugin.log(f"[FEE] No CPFP needed based on feerate")
 
             
-        child_fee = desired_child_fee
-        plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
-
-    
+    child_fee = desired_child_fee
+    plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
 
     if total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
