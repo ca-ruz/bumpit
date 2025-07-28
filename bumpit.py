@@ -131,10 +131,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
     if not isinstance(vout, int) or vout < 0:
         return {"code": -32600, "message": "Invalid vout: must be a non-negative integer"}
 
-
-
-
-
     if fee is not None:
         try:
             fee = int(fee)
@@ -149,10 +145,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
             return {"code": -32600, "message": "Invalid fee_rate: must be a number"}
     else:
         return {"code": -32600, "message": "You must specify either fee or fee_rate"}
-
-
-
-   
 
     if yolo == "yolo":
         plugin.log("YOLO mode is ON!")
