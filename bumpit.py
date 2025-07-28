@@ -313,24 +313,32 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
 
 
     if fee is not None:
-        child_fee = fee
-        plugin.log(f"[FEE] Using user-specified fee: {child_fee} sats")
+        desired_child_fee = fee
+        plugin.log(f"[FEE] Using user-specified desired child fee: {desired_child_fee} sats")
     else:
 
         if parent_fee_rate < target_feerate:
-            child_vsize = first_child_vsize
-            desired_total_fee = target_feerate * (parent_vsize + child_vsize)
-            child_fee = max(0, float(desired_total_fee) - float(parent_fee))  # Convert to float
-            plugin.log(f"[FEE] Calculated fee from feerate: {child_fee} sats")
+            try:
+                desired_child_fee = calculate_child_fee(
+                    parent_fee=parent_fee,
+                    parent_vsize=parent_vsize,
+                    child_vsize=first_child_vsize,
+                    desired_total_feerate=target_feerate
+                )
+                plugin.log(f"[FEE] Calculated desired child fee from feerate: {desired_child_fee} sats")
+            except CPFPError as e:
+                plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
+                return {"code": -32600, "message": f"Failed to calculate child fee: {str(e)}"}
 
         else:
-            child_fee = 0
+            desired_child_fee = 0
             plugin.log(f"[FEE] No CPFP needed based on feerate")
-        
-        
-        
-        
+
+            
+        child_fee = desired_child_fee
         plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
+
+    
 
     if total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
@@ -361,14 +369,6 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
     # Step 11: Calculate confirmed unreserved amount
     total_sats = calculate_confirmed_unreserved_amount(funds, txid, vout)
     plugin.log(f"[GOLF] Total amount in confirmed and unreserved outputs: {total_sats} sats")
-
-    # Step 12: Calculate child fee
-    try:
-        desired_child_fee = calculate_child_fee(parent_fee, parent_vsize, first_child_vsize, fee_rate)
-        plugin.log(f"[YANKEE1.5] Contents of desired_child_fee: {desired_child_fee}")
-    except CPFPError as e:
-        plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
-        return {"code": -32600, "message": f"Failed to calculate child fee: {str(e)}"}
 
     amount = format(amount, '.8f')
     recipient_amount = float(amount) - (float(desired_child_fee) / 10**8)
