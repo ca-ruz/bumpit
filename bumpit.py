@@ -115,36 +115,42 @@ def try_unreserve_inputs(plugin, psbt):
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
                          "Use `listfunds` to check unreserved funds before bumping. Use `yolo` mode to broadcast transaction automatically")
 @wrap_method
-def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
+def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     """
     Creates a CPFP transaction for a specific parent output.
 
     Args:
         txid: Parent transaction ID (string)
         vout: Output index (non-negative integer)
-        fee_rate: Desired fee rate in sat/vB (number)
+        amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10perkb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
+
+    
     # Input validation
     if not isinstance(txid, str) or not txid:
         return {"code": -32600, "message": "Invalid or missing txid: must be a non-empty string"}
     if not isinstance(vout, int) or vout < 0:
         return {"code": -32600, "message": "Invalid vout: must be a non-negative integer"}
 
-    if fee is not None:
-        try:
-            fee = int(fee)
+    if not isinstance(amount, str) or not amount:
+        return {"code": -32600, "message": "Invalid or missing amount: must be a non-empty string with 'sats' or 'perkb' suffix"}
+    if not (amount.endswith('sats') or amount.endswith('perkb')):
+        return {"code": -32600, "message": "Invalid amount: must end with 'sats' or 'perkb'"}
+    try:
+        if amount.endswith('sats'):
+            fee = int(amount[:-4])  # Remove 'sats' suffix
+            if fee < 0:
+                return {"code": -32600, "message": "Invalid fee: must be non-negative"}
             plugin.log(f"[BRAVO-FEE] Using fixed child fee: {fee} sats")
-        except (TypeError, ValueError):
-            return {"code": -32600, "message": "Invalid fee: must be an integer"}
-    elif fee_rate is not None:
-        try:
-            fee_rate = float(fee_rate)
+        else:  # amount.endswith('perkb')
+            fee_rate = float(amount[:-5]) / 1000  # Remove 'perkb' and convert sat/kvB to sat/vB
+            if fee_rate < 0:
+                return {"code": -32600, "message": "Invalid fee_rate: must be non-negative"}
             plugin.log(f"[BRAVO-FEERATE] Using feerate: {fee_rate} sat/vB")
-        except (TypeError, ValueError):
-            return {"code": -32600, "message": "Invalid fee_rate: must be a number"}
-    else:
-        return {"code": -32600, "message": "You must specify either fee or fee_rate"}
+    except (TypeError, ValueError):
+        return {"code": -32600, "message": "Invalid amount: must be a valid number followed by 'sats' or 'perkb'"}
+
 
     if yolo == "yolo":
         plugin.log("YOLO mode is ON!")
@@ -297,15 +303,15 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
         plugin.log(f"[ROMEO] Error during PSBT creation: {str(e)}")
         return {"code": -32600, "message": f"Unexpected error during PSBT creation: {str(e)}"}
 
+
     # Step 9: Calculate child fee and check emergency reserve
-    target_feerate = float(fee_rate)  # Validation already done
     total_unreserved_sats = sum(utxo["amount_msat"] // 1000 for utxo in available_utxos)
-    
-    if fee is not None:
+
+    if amount.endswith('sats'):
         desired_child_fee = fee
         plugin.log(f"[FEE] Using user-specified desired child fee: {desired_child_fee} sats")
-    else:
-
+    else:  # amount.endswith('perkb')
+        target_feerate = fee_rate  # Validation already done
         if parent_fee_rate < target_feerate:
             try:
                 desired_child_fee = calculate_child_fee(
@@ -318,14 +324,13 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
             except CPFPError as e:
                 plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
                 return {"code": -32600, "message": f"Failed to calculate child fee: {str(e)}"}
-
         else:
             desired_child_fee = 0
             plugin.log(f"[FEE] No CPFP needed based on feerate")
 
-            
     child_fee = desired_child_fee
     plugin.log(f"[DEBUG] Total unreserved balance: {total_unreserved_sats} sats, estimated child fee: {child_fee} sats")
+
 
     if total_unreserved_sats - child_fee < 25000:
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
@@ -336,7 +341,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
         }
 
     # Step 10: Check feerate
-    if parent_fee_rate >= target_feerate:
+    if amount.endswith('perkb') and parent_fee_rate >= target_feerate:
         plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
                    f"meets or exceeds target {target_feerate:.2f} sat/vB")
         return {
@@ -350,7 +355,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
             "total_fees": int(parent_fee),
             "total_vsizes": int(parent_vsize),
             "total_feerate": float(parent_fee_rate),
-            "desired_total_feerate": target_feerate
+            "desired_total_feerate": fee_rate
         }
 
     # Step 11: Calculate confirmed unreserved amount
@@ -481,7 +486,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
         "total_fees": total_fees,
         "total_vsizes": total_vsizes,
         "total_feerate": total_feerate,
-        "desired_total_feerate": float(fee_rate),
+        "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee",
         "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
         "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}",
         "notice": "Inputs used in this PSBT are now reserved. If you do not broadcast this transaction, you must manually unreserve them",
@@ -509,7 +514,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
                     "total_fees": total_fees,
                     "total_vsizes": total_vsizes,
                     "total_feerate": total_feerate,
-                    "desired_total_feerate": float(fee_rate)
+                    "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee"
                 }
             except (JSONRPCException, RpcError) as e:
                 plugin.log(f"[SIERRA] RPC Error during transaction broadcast: {str(e)}")
@@ -540,7 +545,7 @@ def bumpchannelopen(plugin, txid, vout, fee_rate, fee=None, yolo=None):
                 "total_fees": total_fees,
                 "total_vsizes": total_vsizes,
                 "total_feerate": total_feerate,
-                "desired_total_feerate": float(fee_rate),
+                "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee",
                 "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}"
             }
             plugin.log("Dry run: transaction not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast.")
