@@ -137,6 +137,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         return {"code": -32600, "message": "Invalid or missing amount: must be a non-empty string with 'sats' or 'perkb' suffix"}
     if not (amount.endswith('sats') or amount.endswith('perkb')):
         return {"code": -32600, "message": "Invalid amount: must end with 'sats' or 'perkb'"}
+    fee = 0
     fee_rate = 0
     try:
         if amount.endswith('sats'):
