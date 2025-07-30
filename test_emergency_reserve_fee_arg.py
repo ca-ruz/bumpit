@@ -56,7 +56,7 @@ def test_emergency_reserve_fee_boundary(node_factory):
     utxo = available_utxos[0]
     fixed_fee = int(current_unreserved - 24999)  # Fee to leave exactly 24,999 sats
     print(f"Paying CPFP with: txid={utxo['txid']}, vout={utxo['output']}, amount={utxo['amount_msat']/1000} sats, fixed fee={fixed_fee} sats")
-    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=45, fee=fixed_fee)
+    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], amount=f"{fixed_fee}sats")
 
     # Sanity check to make sure we are not spending our emergency reserve
     leftover_emergencyreserve = change_utxo['amount_msat'] // 1000 - int(result['child_fee'])

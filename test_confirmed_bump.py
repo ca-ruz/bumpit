@@ -50,7 +50,7 @@ def test_confirmed_bump(node_factory):
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,  # Use funding_txid instead of wallet_txid
         vout=funding_utxo["output"],  # Use funding_utxo's vout
-        fee_rate=3
+        amount="3satvb"
     )
 
     # Step 4: Assert the outcome

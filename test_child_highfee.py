@@ -79,11 +79,11 @@ def test_child_highfee(node_factory):
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
     # Call bumpchannelopen with high feerate
-    target_feerate = 1000  # sat/vB
+    target_feerate = "1000satvb"
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
-        fee_rate=target_feerate,
+        amount=target_feerate,
         yolo="dryrun"
     )
     

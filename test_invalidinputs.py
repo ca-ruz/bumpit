@@ -34,7 +34,7 @@ def test_invalidinputs(node_factory):
     result = l1.rpc.bumpchannelopen(
         txid=invalid_txid,
         vout=0,  # Valid vout index, but txid is invalid
-        fee_rate=3
+        amount="3satvb"
     )
     assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
     assert "message" in result, f"Expected error message, got {result}"
@@ -45,7 +45,7 @@ def test_invalidinputs(node_factory):
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=999,  # Invalid vout
-        fee_rate=3
+        amount="3satvb"
     )
     assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
     assert "message" in result, f"Expected error message, got {result}"

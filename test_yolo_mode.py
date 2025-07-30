@@ -78,13 +78,15 @@ def test_yolo_mode(node_factory):
     print(f"  Feerate: {parent_details['feerate']:.2f} sat/vB")
     
     # Call bumpchannelopen in YOLO mode
-    target_feerate = 5
+    target_feerate = "5satvb"
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
-        fee_rate=target_feerate,
+        amount=target_feerate,
         yolo="yolo"
     )
+
+    feerate_int = int(target_feerate[:-5])
     
     # Extract plugin results
     plugin_parent_fee = result.get('parent_fee', 0)
@@ -129,7 +131,7 @@ def test_yolo_mode(node_factory):
     calculated_total_feerate = plugin_total_fees / plugin_total_vsizes if plugin_total_vsizes > 0 else 0
     print(f"Recalculated total feerate: {calculated_total_feerate:.2f} sat/vB")
     
-    assert abs(calculated_total_feerate - target_feerate) < 0.1, (
+    assert abs(calculated_total_feerate - feerate_int) < 0.1, (
         f"Total feerate mismatch: target={target_feerate}, calculated={calculated_total_feerate:.2f}"
     )
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (

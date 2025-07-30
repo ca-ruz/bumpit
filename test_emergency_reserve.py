@@ -55,7 +55,7 @@ def test_emergency_reserve(node_factory):
     # Bump using change UTXO
     utxo = available_utxos[0]
     print(f"Paying CPFP with: txid={utxo['txid']}, vout={utxo['output']}, amount={utxo['amount_msat']/1000} sats")
-    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], fee_rate=4)
+    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], amount="4satvb")
 
     # Sanity check to make sure we are not spending our emergency reserve
     leftover_emergencyreserve = change_utxo['amount_msat'] // 1000 - int(result['child_fee'])

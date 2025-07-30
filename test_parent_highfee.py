@@ -43,12 +43,14 @@ def test_parent_highfee(node_factory):
         return
 
     # Call bumpchannelopen with a lower target feerate
-    target_feerate = 3
+    target_feerate_suffix = "3satvb"
     result = l1.rpc.bumpchannelopen(
         txid=funding_txid,
         vout=change_output['output'],
-        fee_rate=target_feerate,
+        amount=target_feerate_suffix,
     )
+
+    target_feerate = int(target_feerate_suffix[:-5])
 
     # Handle error responses
     if 'code' in result and result['code'] == -32600:
