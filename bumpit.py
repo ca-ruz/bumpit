@@ -113,7 +113,8 @@ def try_unreserve_inputs(plugin, psbt):
 @plugin.method("bumpchannelopen",
                desc="Creates a CPFP transaction to bump the feerate of a parent output, with checks for emergency reserve.",
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
-                         "Use `listfunds` to check unreserved funds before bumping. Use `yolo` mode to broadcast transaction automatically")
+                         "Use `listfunds` to check unreserved funds before bumping. Amount must end with 'sats' (fixed fee) or 'satvb' (fee rate in sat/vB). "
+                         "Use `yolo` mode to broadcast transaction automatically")
 @wrap_method
 def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     """
@@ -122,7 +123,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     Args:
         txid: Parent transaction ID (string)
         vout: Output index (non-negative integer)
-        amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10perkb' for fee rate in sat/vB)
+        amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10satvb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
 
@@ -134,9 +135,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         return {"code": -32600, "message": "Invalid vout: must be a non-negative integer"}
 
     if not isinstance(amount, str) or not amount:
-        return {"code": -32600, "message": "Invalid or missing amount: must be a non-empty string with 'sats' or 'perkb' suffix"}
-    if not (amount.endswith('sats') or amount.endswith('perkb')):
-        return {"code": -32600, "message": "Invalid amount: must end with 'sats' or 'perkb'"}
+        return {"code": -32600, "message": "Invalid or missing amount: must be a non-empty string with 'sats' or 'satvb' suffix"}
+    if not (amount.endswith('sats') or amount.endswith('satvb')):
+        return {"code": -32600, "message": "Invalid amount: must end with 'sats' or 'satvb'"}
     fee = 0
     fee_rate = 0
     try:
@@ -145,13 +146,13 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
             if fee < 0:
                 return {"code": -32600, "message": "Invalid fee: must be non-negative"}
             plugin.log(f"[BRAVO-FEE] Using fixed child fee: {fee} sats")
-        else:  # amount.endswith('perkb')
-            fee_rate = float(amount[:-5]) / 1000  # Remove 'perkb' and convert sat/kvB to sat/vB
+        else:  # amount.endswith('satvb')
+            fee_rate = float(amount[:-5])  # Remove 'satvb' suffix
             if fee_rate < 0:
                 return {"code": -32600, "message": "Invalid fee_rate: must be non-negative"}
             plugin.log(f"[BRAVO-FEERATE] Using feerate: {fee_rate} sat/vB")
     except (TypeError, ValueError):
-        return {"code": -32600, "message": "Invalid amount: must be a valid number followed by 'sats' or 'perkb'"}
+        return {"code": -32600, "message": "Invalid amount: must be a valid number followed by 'sats' or 'satvb'"}
 
 
     plugin.log(f"[DEBUG] Current amount: {amount}, fee_rate: {fee_rate}, fee: {fee}", level="debug")
@@ -318,7 +319,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     if amount.endswith('sats'):
         desired_child_fee = fee
         plugin.log(f"[FEE] Using user-specified desired child fee: {desired_child_fee} sats")
-    else:  # amount.endswith('perkb')
+    else:  # amount.endswith('satvb')
         target_feerate = fee_rate  # Validation already done
         if parent_fee_rate < target_feerate:
             try:
@@ -349,7 +350,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         }
 
     # Step 10: Check feerate
-    if amount.endswith('perkb') and parent_fee_rate >= fee_rate:
+    if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
         plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
                    f"meets or exceeds target {fee_rate:.2f} sat/vB")
         return {
@@ -494,7 +495,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         "total_fees": total_fees,
         "total_vsizes": total_vsizes,
         "total_feerate": total_feerate,
-        "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0,
+        "desired_total_feerate": fee_rate if amount.endswith('satvb') else 0,
         "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
         "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}",
         "notice": "Inputs used in this PSBT are now reserved. If you do not broadcast this transaction, you must manually unreserve them",
@@ -522,7 +523,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
                     "total_fees": total_fees,
                     "total_vsizes": total_vsizes,
                     "total_feerate": total_feerate,
-                    "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0
+                    "desired_total_feerate": fee_rate if amount.endswith('satvb') else 0
                 }
             except (JSONRPCException, RpcError) as e:
                 plugin.log(f"[SIERRA] RPC Error during transaction broadcast: {str(e)}")
@@ -553,7 +554,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
                 "total_fees": total_fees,
                 "total_vsizes": total_vsizes,
                 "total_feerate": total_feerate,
-                "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0,
+                "desired_total_feerate": fee_rate if amount.endswith('satvb') else 0,
                 "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}"
             }
             plugin.log("Dry run: transaction not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast.")
