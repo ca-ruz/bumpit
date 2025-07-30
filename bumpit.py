@@ -137,6 +137,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         return {"code": -32600, "message": "Invalid or missing amount: must be a non-empty string with 'sats' or 'perkb' suffix"}
     if not (amount.endswith('sats') or amount.endswith('perkb')):
         return {"code": -32600, "message": "Invalid amount: must end with 'sats' or 'perkb'"}
+    fee_rate = 0
     try:
         if amount.endswith('sats'):
             fee = int(amount[:-4])  # Remove 'sats' suffix
@@ -150,6 +151,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
             plugin.log(f"[BRAVO-FEERATE] Using feerate: {fee_rate} sat/vB")
     except (TypeError, ValueError):
         return {"code": -32600, "message": "Invalid amount: must be a valid number followed by 'sats' or 'perkb'"}
+
+
+    plugin.log(f"[DEBUG] Current amount: {amount}, fee_rate: {fee_rate}, fee: {fee}", level="debug")
 
 
     if yolo == "yolo":
@@ -258,8 +262,8 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     if not amount_msat:
         return {"code": -32600, "message": f"UTXO {txid}:{vout} not found or already spent"}
 
-    amount = amount_msat / 100_000_000_000
-    plugin.log(f"[DEBUG] Amount in BTC: {amount}")
+    utxo_amount_btc = amount_msat / 100_000_000_000
+    plugin.log(f"[DEBUG] Amount in BTC: {utxo_amount_btc}")
 
     # Step 7: Verify address
     try:
@@ -281,7 +285,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
     try:
-        rpc_result = rpc_connection.createpsbt(utxo_selector, [{address: amount}])
+        rpc_result = rpc_connection.createpsbt(utxo_selector, [{address: utxo_amount_btc}])
         plugin.log(f"[DEBUG] Contents of PSBT: {rpc_result}")
         updated_psbt = rpc_connection.utxoupdatepsbt(rpc_result)
         plugin.log(f"[DEBUG] Updated PSBT: {updated_psbt}")
@@ -305,6 +309,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
 
 
     # Step 9: Calculate child fee and check emergency reserve
+
+    plugin.log(f"[DEBUG] Before Step 9 - amount: {amount}, type: {type(amount)}", level="debug")
+
     total_unreserved_sats = sum(utxo["amount_msat"] // 1000 for utxo in available_utxos)
 
     if amount.endswith('sats'):
@@ -341,9 +348,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         }
 
     # Step 10: Check feerate
-    if amount.endswith('perkb') and parent_fee_rate >= target_feerate:
+    if amount.endswith('perkb') and parent_fee_rate >= fee_rate:
         plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
-                   f"meets or exceeds target {target_feerate:.2f} sat/vB")
+                   f"meets or exceeds target {fee_rate:.2f} sat/vB")
         return {
             "message": "No CPFP needed: parent fee rate exceeds target",
             "parent_fee": int(parent_fee),
@@ -362,10 +369,10 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     total_sats = calculate_confirmed_unreserved_amount(funds, txid, vout)
     plugin.log(f"[GOLF] Total amount in confirmed and unreserved outputs: {total_sats} sats")
 
-    amount = format(amount, '.8f')
-    recipient_amount = float(amount) - (float(desired_child_fee) / 10**8)
+    utxo_amount_btc = format(utxo_amount_btc, '.8f')
+    recipient_amount = float(utxo_amount_btc) - (float(desired_child_fee) / 10**8)
     recipient_amount = format(recipient_amount, '.8f')
-    plugin.log(f"[UNIFORM] amount: {amount}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
+    plugin.log(f"[UNIFORM] _utxo_amount_btc: {utxo_amount_btc}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
 
     # Step 13: Check minimum relay fee
     MIN_RELAY_FEE = 1.0
@@ -486,12 +493,12 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         "total_fees": total_fees,
         "total_vsizes": total_vsizes,
         "total_feerate": total_feerate,
-        "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee",
+        "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0,
         "message2": "Run sendrawtransaction to broadcast your cpfp transaction",
         "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}",
         "notice": "Inputs used in this PSBT are now reserved. If you do not broadcast this transaction, you must manually unreserve them",
         "unreserve_inputs_command": f"lightning-cli unreserveinputs {finalized_psbt_base64}",
-        "message3": "Alternatively, you can restart Core Lightning to release all input reservations"
+        #"message3": "Alternatively, you can restart Core Lightning to release all input reservations"
     }
 
     # Step 19: Handle yolo mode
@@ -514,7 +521,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
                     "total_fees": total_fees,
                     "total_vsizes": total_vsizes,
                     "total_feerate": total_feerate,
-                    "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee"
+                    "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0
                 }
             except (JSONRPCException, RpcError) as e:
                 plugin.log(f"[SIERRA] RPC Error during transaction broadcast: {str(e)}")
@@ -545,7 +552,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
                 "total_fees": total_fees,
                 "total_vsizes": total_vsizes,
                 "total_feerate": total_feerate,
-                "desired_total_feerate": fee_rate if amount.endswith('perkb') else "User passed in a fee",
+                "desired_total_feerate": fee_rate if amount.endswith('perkb') else 0,
                 "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}"
             }
             plugin.log("Dry run: transaction not sent. Type the word `yolo` after the address or use `-k` with `yolo=yolo` to broadcast.")
