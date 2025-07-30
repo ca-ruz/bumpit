@@ -63,7 +63,7 @@ l1-cli listfunds | jq '
 lightning-cli bumpchannelopen <txid> <vout> <amount> [yolo]
 ```
 
-Note: `amount` is the fee/feerate, should be specified in either sat/vB eg.'5satvb' or sats eg. '1000sats'
+Note: `amount` is the fee/feerate, should be specified in either sat/vB, e.g.'5satvb' or sats e.g. '1000sats'
 
 Optional: Type the word `yolo` as an argument after the `amount` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
 
@@ -143,7 +143,7 @@ l1-cli listfunds | jq '
 l1-cli bumpchannelopen <txid> <vout> <amount> [yolo]
 ```
 
-Note: `amount` is the fee/feerate, should be specified in either sat/vB eg.'5satvb' or sats eg. '1000sats'
+Note: `amount` is the fee/feerate, should be specified in either sat/vB e.g.'5satvb' or sats e.g. '1000sats'
     
 Optional: Type the word `yolo` as an argument after the `amount` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction.
 
