@@ -50,19 +50,22 @@ lightning-cli plugin start $PWD/bumpit.py
 lightning-cli fundchannel <peer_id> <amount_in_sats> [feerate]
 ```
 
-5. Get the funding transaction details:
+5. Get the funding transaction txid and change vout:
 ```bash
-lightning-cli listfunds
+l1-cli listfunds | jq '
+  [ .channels[] | select(.state | test("AWAITING")) | .funding_txid ] as $target_txids
+  | [ .outputs[] | select(.txid as $output_txid | $target_txids | index($output_txid)) ]
+'
 ```
 
 6. Create a CPFP transaction:
 ```bash
-lightning-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
+lightning-cli bumpchannelopen <txid> <vout> <amount> [yolo]
 ```
 
-Note: `fee_rate` should be specified in sat/vB.
+Note: `amount` is the fee/feerate, should be specified in either sat/vB eg.'5satvb' or sats eg. '1000sats'
 
-Optional: Type the word `yolo` as an argument after the `fee_rate` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
+Optional: Type the word `yolo` as an argument after the `amount` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction for you.
 
 ## Running Tests
 
@@ -137,11 +140,12 @@ l1-cli listfunds | jq '
 
 6. Create a CPFP transaction:
 ```bash
-l1-cli bumpchannelopen <txid> <vout> <fee_rate> [yolo]
+l1-cli bumpchannelopen <txid> <vout> <amount> [yolo]
 ```
-Note: `fee_rate` should be specified in sat/vB.
+
+Note: `amount` is the fee/feerate, should be specified in either sat/vB eg.'5satvb' or sats eg. '1000sats'
     
-Optional: Type the word `yolo` as an argument after the `fee_rate` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction.
+Optional: Type the word `yolo` as an argument after the `amount` or use `-k` with `yolo=yolo` if you want the plugin to broadcast the transaction.
 
 ## Plugin Configuration
 
