@@ -86,6 +86,7 @@ def test_child_highfee(node_factory):
         amount=target_feerate,
         yolo="dryrun"
     )
+    print(f"Result: {result}")
     
     # Handle error responses
     if 'code' in result and result['code'] == -32600:
