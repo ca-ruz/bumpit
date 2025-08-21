@@ -3,6 +3,11 @@ from pyln.client import RpcError
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 
+# import debugpy
+# debugpy.listen(("localhost", 5678))
+
+import pytest
+
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 50000  # Channel funding amount in satoshis
 INITIAL_FUNDING = 200000  # Initial wallet funding in satoshis
@@ -40,6 +45,11 @@ def test_confirmed_bump(node_factory):
     funds = l1.rpc.listfunds()
     outputs = funds.get("outputs", [])
     funding_utxo = None
+
+    # for txid in outputs:
+    #     if txid["txid"] != funding_txid:
+    #         confirmed_txid = txid
+
     for output in outputs:
         if output["txid"] == funding_txid:
             funding_utxo = output
@@ -47,15 +57,14 @@ def test_confirmed_bump(node_factory):
     assert funding_utxo is not None and funding_utxo.get("status") == "confirmed", f"Funding tx {funding_txid} is not confirmed"
 
     # Step 3: Attempt to bump the confirmed funding transaction
-    result = l1.rpc.bumpchannelopen(
-        txid=funding_txid,  # Use funding_txid instead of wallet_txid
-        vout=funding_utxo["output"],  # Use funding_utxo's vout
-        amount="3satvb"
-    )
+    with pytest.raises(RpcError) as exc_info:
+        l1.rpc.bumpchannelopen(
+            txid=funding_txid,  # Use funding_txid instead of wallet_txid
+            vout=funding_utxo["output"],  # Use funding_utxo's vout
+            amount="3satvb"
+        )
 
     # Step 4: Assert the outcome
-    # assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
-    assert 'code' not in result
-    assert "message" in result, f"Expected error message, got {result}"
-    assert "confirmed" in result["message"].lower(), f"Expected 'confirmed' in error, got {result['message']}"
-    print(f"Success: Cannot bump confirmed transaction: {result['message']}")
+    assert exc_info.type is RpcError
+    assert exc_info.value.error["message"] == "Error while processing bumpchannelopen: Transaction is already confirmed and cannot be bumped"
+    print(f"Success: Cannot bump confirmed transaction: {exc_info.value.error["message"]}")

@@ -493,7 +493,6 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10satvb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
-
     # Validate & Parse input
     input_validation(txid, vout, amount, yolo)
     fee, fee_rate = parse_input(txid, vout, amount)
