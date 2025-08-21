@@ -54,7 +54,8 @@ def test_confirmed_bump(node_factory):
     )
 
     # Step 4: Assert the outcome
-    assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    # assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    assert 'code' not in result
     assert "message" in result, f"Expected error message, got {result}"
     assert "confirmed" in result["message"].lower(), f"Expected 'confirmed' in error, got {result['message']}"
     print(f"Success: Cannot bump confirmed transaction: {result['message']}")

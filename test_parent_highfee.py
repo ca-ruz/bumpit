@@ -53,37 +53,27 @@ def test_parent_highfee(node_factory):
     target_feerate = int(target_feerate_suffix[:-5])
 
     # Handle error responses
-    if 'code' in result and result['code'] == -32600:
-        print(f"Error response: {result['message']}")
-        assert "reserve" in result['message'].lower() or "confirmed" in result['message'].lower(), (
-            f"Unexpected error: {result['message']}"
-        )
-        return
+    assert 'code' not in result
 
     # Print plugin output
     print("\nPlugin response:")
     print(f"  Message: {result.get('message', 'N/A')}")
     print(f"  Parent details:")
     print(f"    Fee: {result.get('parent_fee', 0)} sats")
-    print(f"    Vsize: {result.get('parent_vsize', 0)} vB")
+    # print(f"    Vsize: {result.get('parent_vsize', 0)} vB")
     print(f"    Feerate: {result.get('parent_feerate', 0):.2f} sat/vB")
-    print(f"  Child details:")
-    print(f"    Fee: {result.get('child_fee', 0)} sats")
-    print(f"    Vsize: {result.get('child_vsize', 0)} vB")
-    print(f"    Feerate: {result.get('child_feerate', 0):.2f} sat/vB")
-    print(f"  Total details:")
-    print(f"    Fees: {result.get('total_fees', 0)} sats")
-    print(f"    Vsizes: {result.get('total_vsizes', 0)} vB")
-    print(f"    Feerate: {result.get('total_feerate', 0):.2f} sat/vB")
+    # print(f"  Child details:")
+    # print(f"    Fee: {result.get('child_fee', 0)} sats")
+    # print(f"    Vsize: {result.get('child_vsize', 0)} vB")
+    # print(f"    Feerate: {result.get('child_feerate', 0):.2f} sat/vB")
+    # print(f"  Total details:")
+    # print(f"    Fees: {result.get('total_fees', 0)} sats")
+    # print(f"    Vsizes: {result.get('total_vsizes', 0)} vB")
+    # print(f"    Feerate: {result.get('total_feerate', 0):.2f} sat/vB")
     print(f"  Desired total feerate: {result.get('desired_total_feerate', 'N/A')}")
 
     # Verify the plugin skipped CPFP
-    assert "No CPFP needed" in result['message'], f"Expected 'No CPFP needed' in message, got: {result['message']}"
     assert result['parent_feerate'] > target_feerate, (
         f"Parent feerate ({result['parent_feerate']:.2f}) should exceed target ({target_feerate})"
     )
-    assert result['child_fee'] == 0, f"Expected child_fee=0, got: {result['child_fee']}"
-    assert result['child_vsize'] == 0, f"Expected child_vsize=0, got: {result['child_vsize']}"
-    assert result['child_feerate'] == 0, f"Expected child_feerate=0, got: {result['child_feerate']}"
-    assert result['total_fees'] == result['parent_fee'], f"Expected total_fees=parent_fee, got: {result['total_fees']} vs {result['parent_fee']}"
-    
+    assert "No CPFP needed" in result['message'], f"Expected 'No CPFP needed' in message, got: {result['message']}"

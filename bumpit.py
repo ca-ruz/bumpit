@@ -98,16 +98,18 @@ def wrap_method(func):
             return func(plugin, *args, **kwargs)
         except TypeError as e:
             plugin.log(f"[ERROR] Invalid arguments: {str(e)}")
-            return {
-                "code": -32600,
-                "message": "Missing required argument: ensure txid, vout, and fee_rate are provided"
-            }
+            # return {
+            #     "code": -32600,
+            #     "message": "Missing required argument: ensure txid, vout, and fee_rate are provided"
+            # }
+            raise e
         except Exception as e:
             plugin.log(f"[ERROR] Unexpected error: {str(e)}")
-            return {
-                "code": -32600,
-                "message": f"Unexpected error: {str(e)}"
-            }
+            # return {
+            #     "code": -32600,
+            #     "message": f"Unexpected error: {str(e)}"
+            # }
+            raise e
     return wrapper
 
 def try_unreserve_inputs(plugin, psbt):
@@ -321,23 +323,15 @@ def validate_emergency_reserve(total_unreserved_sats, child_fee):
             "child_fee": child_fee
         }
 
-def check_feerate(amount, parent_fee_rate, fee_rate, parent_fee, parent_vsize):
-    if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
-        plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
-                   f"meets or exceeds target {fee_rate:.2f} sat/vB")
-        return {
-            "message": "No CPFP needed: parent fee rate exceeds target",
-            "parent_fee": int(parent_fee),
-            "parent_vsize": int(parent_vsize),
-            "parent_feerate": float(parent_fee_rate),
-            "child_fee": 0,
-            "child_vsize": 0,
-            "child_feerate": 0,
-            "total_fees": int(parent_fee),
-            "total_vsizes": int(parent_vsize),
-            "total_feerate": float(parent_fee_rate),
-            "desired_total_feerate": fee_rate
-        }
+def no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee):
+    plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
+                f"meets or exceeds target {fee_rate:.2f} sat/vB")
+    return {
+        "message": "No CPFP needed: parent fee rate exceeds target",
+        "parent_fee": int(parent_fee),
+        "parent_feerate": int(parent_fee_rate),
+        "desired_total_feerate": fee_rate
+    }
 
 def calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc):
     total_sats = calculate_confirmed_unreserved_amount(funds, txid, vout)
@@ -469,7 +463,8 @@ def yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt):
         plugin.log(f"[YOLO] Sending raw transaction...")
         sent_txid = rpc_connection.sendrawtransaction(final_tx_hex)
         plugin.log(f"[YOLO] Transaction sent! TXID: {sent_txid}")
-        response["message"] = "You used YOLO mode! Transaction sent! Please run the analyze command to confirm transaction details."
+        response["message"] = "You used YOLO mode! Transaction sent! Please run the analyze and getrawtransaction commands to confirm transaction details."
+        response["getrawtransaction_command"] = f"bitcoin-cli getrawtransaction {sent_txid} 1"
         for key in ["message2", "sendrawtransaction_command", "notice", "unreserve_inputs_command"]:
             del response[key]
         return response
@@ -487,7 +482,7 @@ def yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt):
                long_desc="Creates a Child-Pays-For-Parent (CPFP) transaction to increase the feerate of a specified output. "
                          "Use `listfunds` to check unreserved funds before bumping. Amount must end with 'sats' (fixed fee) or 'satvb' (fee rate in sat/vB). "
                          "Use `yolo` mode to broadcast transaction automatically")
-@wrap_method
+# @wrap_method
 def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     """
     Creates a CPFP transaction for a specific parent output.
@@ -535,8 +530,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize)
     validate_emergency_reserve(total_unreserved_sats, child_fee)
 
-    # Step 10: Check feerate    
-    check_feerate(amount, parent_fee_rate, fee_rate, parent_fee, parent_vsize)
+    # Step 10: Check feerate
+    if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
+        return no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee)
 
     # Step 11: Calculate confirmed unreserved amount
     recipient_amount = calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc)
