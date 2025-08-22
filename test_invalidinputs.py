@@ -3,6 +3,9 @@ from pyln.client import RpcError
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
 
+# import debugpy
+# debugpy.listen(("localhost", 5678))
+
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 500000  # Match emergency_reserve for consistency
 
@@ -29,26 +32,44 @@ def test_invalidinputs(node_factory):
     bitcoind.generate_block(1)  # Confirm funding tx
     sync_blockheight(bitcoind, [l1, l2])
 
+    vout = 0
+
     # Test invalid txid
-    invalid_txid = "0000000000000000000000000000000000000000000000000000000000000000"
-    result = l1.rpc.bumpchannelopen(
-        txid=invalid_txid,
-        vout=0,  # Valid vout index, but txid is invalid
-        amount="3satvb"
-    )
-    assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
-    assert "message" in result, f"Expected error message, got {result}"
-    print(f"Expected error (invalid txid): {result['message']}")
-    assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid txid error, got {result['message']}"
+    with pytest.raises(RpcError) as exc_info:
+        invalid_txid = "0000000000000000000000000000000000000000000000000000000000000000"
+        l1.rpc.bumpchannelopen(
+            txid=invalid_txid,
+            vout=vout,  # Valid vout index, but txid is invalid
+            amount="3satvb"
+        )
+
+    # assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    # assert "message" in result, f"Expected error message, got {result}"
+    # print(f"Expected error (invalid txid): {result['message']}")
+    # assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid txid error, got {result['message']}"
+
+    # Step 4: Assert the outcome
+    assert exc_info.type is RpcError
+    assert exc_info.value.error["message"] == f"Error while processing bumpchannelopen: UTXO {invalid_txid}:{vout} not found in available UTXOs"
+    # print(f"Success: Cannot bump confirmed transaction: {exc_info.value.error["message"]}")
+
+    vout2 = 999
 
     # Test invalid vout
-    result = l1.rpc.bumpchannelopen(
-        txid=funding_txid,
-        vout=999,  # Invalid vout
-        amount="3satvb"
-    )
-    assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
-    assert "message" in result, f"Expected error message, got {result}"
-    print(f"Expected error (invalid vout): {result['message']}")
-    assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid vout error, got {result['message']}"
+    with pytest.raises(RpcError) as exc_info:
+        l1.rpc.bumpchannelopen(
+            txid=funding_txid,
+            vout=vout2,  # Invalid vout
+            amount="3satvb"
+        )
+
+    # assert "code" in result and result["code"] == -32600, f"Expected error code -32600, got {result}"
+    # assert "message" in result, f"Expected error message, got {result}"
+    # print(f"Expected error (invalid vout): {result['message']}")
+    # assert "not found" in result["message"].lower() or "invalid" in result["message"].lower(), f"Expected invalid vout error, got {result['message']}"
+
     
+    # Step 4: Assert the outcome
+    assert exc_info.type is RpcError
+    assert exc_info.value.error["message"] == f"Error while processing bumpchannelopen: UTXO {funding_txid}:{vout2} not found in available UTXOs"
+    # print(f"Success: Cannot bump confirmed transaction: {exc_info.value.error["message"]}")

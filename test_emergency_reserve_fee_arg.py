@@ -7,7 +7,7 @@ FUNDAMOUNT = 74000
 INITIAL_FUNDING = 100000
 EMERGENCY_RESERVE = 25000
 
-def test_emergency_reserve_fee_boundary(node_factory):
+def test_emergency_reserve_fee_arg(node_factory):
     opts = {
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
