@@ -316,12 +316,9 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
    
 def validate_emergency_reserve(total_unreserved_sats, child_fee):
     if total_unreserved_sats - child_fee < 25000:
+        would_leave = total_unreserved_sats - child_fee
         plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
-        return {
-            "code": -32600,
-            "message": f"Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.",
-            "child_fee": child_fee
-        }
+        raise Exception(f"Bump would leave {would_leave} sats, below 25000 sat emergency reserve.")
 
 def no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee):
     plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "

@@ -2,8 +2,8 @@ import os
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, FUNDAMOUNT, BITCOIND_CONFIG
 
-import debugpy
-debugpy.listen(("localhost", 5678))
+# import debugpy
+# debugpy.listen(("localhost", 5678))
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 1000000  # Match the manual test amount of 1M sats
