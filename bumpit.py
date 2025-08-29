@@ -234,10 +234,6 @@ def parent_tx_details(txid):
         raise Exception (f"Failed to fetch transaction: {str(e)}")
     return rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize
 
-def is_tx_confirmed(tx):
-    if tx.get("confirmations", 0) > 0:
-        raise Exception ("Transaction is already confirmed and cannot be bumped")
-
 def fetch_utxo_details(selected_utxo, txid, vout):
     amount_msat = selected_utxo["amount_msat"]
     if not amount_msat:
@@ -315,10 +311,9 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
     return desired_child_fee, total_unreserved_sats, child_fee
    
 def validate_emergency_reserve(total_unreserved_sats, child_fee):
-    if total_unreserved_sats - child_fee < 25000:
-        would_leave = total_unreserved_sats - child_fee
-        plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
-        raise Exception(f"Bump would leave {would_leave} sats, below 25000 sat emergency reserve.")
+    would_leave = total_unreserved_sats - child_fee
+    plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
+    raise Exception(f"Bump would leave {would_leave} sats, below 25000 sat emergency reserve.")
 
 def no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee):
     plugin.log(f"[INFO] Skipping PSBT: parent fee rate {parent_fee_rate:.2f} sat/vB "
@@ -490,76 +485,49 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10satvb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
-    # Validate & Parse input
+
     input_validation(txid, vout, amount, yolo)
     fee, fee_rate = parse_input(txid, vout, amount)
     log_yolo(yolo)
 
-    # Step 1: Get new address
     address = get_new_address()
 
-    # Step 2: Fetch network information
     validate_network()
 
-    # Step 3: Get list of UTXOs
     funds, available_utxos = get_utxos()
 
-    # Select UTXO
     selected_utxo = select_utxo(available_utxos, txid, vout)
 
-    # Step 4: Calculate parent transaction details
     rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize = parent_tx_details(txid)
 
-    # Step 5: Check if transaction is confirmed
-    is_tx_confirmed(tx)
+    if tx.get("confirmations", 0) > 0:
+        raise Exception ("Transaction is already confirmed and cannot be bumped")
 
-    # Step 6: Fetch UTXO details
     utxo_amount_btc = fetch_utxo_details(selected_utxo,txid, vout)
 
-    # Step 7: Verify address
     verify_address(address)
 
-    # Step 8: Create first PSBT
     first_child_vsize, utxo_selector = create_mock_psbt(selected_utxo, rpc_connection, address, utxo_amount_btc)
 
-    # Step 9: Calculate child fee and check emergency reserve
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize)
-    validate_emergency_reserve(total_unreserved_sats, child_fee)
+    if total_unreserved_sats - child_fee < 25000:
+        validate_emergency_reserve(total_unreserved_sats, child_fee)
 
-    # Step 10: Check feerate
     if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
         return no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee)
 
-    # Step 11: Calculate confirmed unreserved amount
     recipient_amount = calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc)
 
-    # Step 13: Check minimum relay fee
-# def check_min_relayfee():
-    # MIN_RELAY_FEE = 1.0
-    # child_feerate = desired_child_fee / first_child_vsize
-    # if child_feerate < MIN_RELAY_FEE:
-    #     return {
-    #         "code": -32600,
-    #         "message": f"Child transaction feerate ({child_feerate:.2f} sat/vB) below minimum relay fee ({MIN_RELAY_FEE} sat/vB). Increase fee_rate."
-    #     }
-# check_min_relayfee()
-
-    # Step 14: Create second PSBT
     second_psbt, second_child_vsize = create_PSBT(rpc_connection, utxo_selector, address, recipient_amount)
 
-    # Step 15: Reserve and sign PSBT
     finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(second_psbt, rpc_connection)
 
-    # Step 16: Analyze final transaction
     signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, reserved_psbt)
 
-    # Step 17: Calculate totals
     child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, second_child_vsize)
 
-    # Step 18: Build response
     response = build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, second_child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex)
 
-    # Step 19: Handle yolo mode
     if yolo is not None and yolo == "yolo":
         response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
 
