@@ -98,17 +98,9 @@ def wrap_method(func):
             return func(plugin, *args, **kwargs)
         except TypeError as e:
             plugin.log(f"[ERROR] Invalid arguments: {str(e)}")
-            # return {
-            #     "code": -32600,
-            #     "message": "Missing required argument: ensure txid, vout, and fee_rate are provided"
-            # }
             raise e
         except Exception as e:
             plugin.log(f"[ERROR] Unexpected error: {str(e)}")
-            # return {
-            #     "code": -32600,
-            #     "message": f"Unexpected error: {str(e)}"
-            # }
             raise e
     return wrapper
 
@@ -156,11 +148,6 @@ def log_yolo(yolo):
     else:
         plugin.log("Safety mode is ON!")
     
-def get_new_address():
-    address = plugin.rpc.newaddr().get('bech32')
-    plugin.log(f"[BRAVO2.0] Got new bech32 address from node: address: {address}")
-    return address
-
 def validate_network(): 
     try:
         network = plugin.rpc.getinfo().get('network')
@@ -170,6 +157,52 @@ def validate_network():
     except RpcError as e:
         plugin.log(f"[SIERRA] RPC Error: {str(e)}")
         raise Exception(f"Failed to fetch network info: {str(e)}")
+
+def get_new_address():
+    address = plugin.rpc.newaddr().get('bech32')
+    plugin.log(f"[BRAVO2.0] Got new bech32 address from node: address: {address}")
+    return address
+
+def verify_address(address):    
+    try:
+        listaddresses_result = plugin.rpc.listaddresses()
+        valid_addresses = [
+            entry[key] for entry in listaddresses_result.get("addresses", [])
+            for key in ("bech32", "p2tr") if key in entry
+        ]
+        if address not in valid_addresses:
+            plugin.log(f"[ERROR] Address {address} is not owned by this node", level="error")
+            raise Exception(f"Recipient address {address} is not owned by this node")
+    except RpcError as e:
+        plugin.log(f"[SIERRA] RPC Error: {str(e)}")
+        raise Exception(f"Failed to verify address: {str(e)}")
+    plugin.log(f"[INFO] Address {address} is valid and owned by this node")
+
+def parent_tx_details(txid): 
+    try:
+        rpc_connection = connect_bitcoincli()
+        tx = rpc_connection.getrawtransaction(txid, True)
+        plugin.log(f"[TANGO - WHISKEY] Contents tx: {tx}")
+        total_inputs = 0
+        for vin in tx["vin"]:
+            input_tx = rpc_connection.getrawtransaction(vin["txid"], True)
+            total_inputs += input_tx["vout"][vin["vout"]]["value"]
+        plugin.log(f"[TANGO - WHISKEY 2] Contents of total_inputs: {total_inputs}")
+        total_outputs = sum(vout["value"] for vout in tx["vout"])
+        plugin.log(f"[TANGO - WHISKEY 3] Contents of total_outputs: {total_outputs}")
+        parent_fee = total_inputs - total_outputs
+        parent_fee = parent_fee * 10**8
+        plugin.log(f"[TANGO - WHISKEY 4] Contents of parent_fee: {parent_fee}")
+        parent_tx_hex = rpc_connection.getrawtransaction(txid)
+        parent_tx_dict = rpc_connection.decoderawtransaction(parent_tx_hex)
+        parent_vsize = parent_tx_dict.get("vsize")
+        plugin.log(f"[WHISKEY] Contents of parent_vsize: {parent_vsize}")
+        parent_fee_rate = parent_fee / parent_vsize  # sat/vB
+        plugin.log(f"[YANKEE] Contents of parent_fee_rate: {parent_fee_rate}")
+    except JSONRPCException as e:
+        plugin.log(f"[SIERRA] RPC Error: {str(e)}")
+        raise Exception (f"Failed to fetch transaction: {str(e)}")
+    return rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize
 
 def get_utxos():
     try:
@@ -208,32 +241,6 @@ def select_utxo(available_utxos, txid, vout):
     plugin.log(f"[DEBUG] Selected UTXO: txid={selected_utxo['txid']}, vout={selected_utxo['output']}, amount={selected_utxo['amount_msat']} msat")
     return selected_utxo
 
-def parent_tx_details(txid): 
-    try:
-        rpc_connection = connect_bitcoincli()
-        tx = rpc_connection.getrawtransaction(txid, True)
-        plugin.log(f"[TANGO - WHISKEY] Contents tx: {tx}")
-        total_inputs = 0
-        for vin in tx["vin"]:
-            input_tx = rpc_connection.getrawtransaction(vin["txid"], True)
-            total_inputs += input_tx["vout"][vin["vout"]]["value"]
-        plugin.log(f"[TANGO - WHISKEY 2] Contents of total_inputs: {total_inputs}")
-        total_outputs = sum(vout["value"] for vout in tx["vout"])
-        plugin.log(f"[TANGO - WHISKEY 3] Contents of total_outputs: {total_outputs}")
-        parent_fee = total_inputs - total_outputs
-        parent_fee = parent_fee * 10**8
-        plugin.log(f"[TANGO - WHISKEY 4] Contents of parent_fee: {parent_fee}")
-        parent_tx_hex = rpc_connection.getrawtransaction(txid)
-        parent_tx_dict = rpc_connection.decoderawtransaction(parent_tx_hex)
-        parent_vsize = parent_tx_dict.get("vsize")
-        plugin.log(f"[WHISKEY] Contents of parent_vsize: {parent_vsize}")
-        parent_fee_rate = parent_fee / parent_vsize  # sat/vB
-        plugin.log(f"[YANKEE] Contents of parent_fee_rate: {parent_fee_rate}")
-    except JSONRPCException as e:
-        plugin.log(f"[SIERRA] RPC Error: {str(e)}")
-        raise Exception (f"Failed to fetch transaction: {str(e)}")
-    return rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize
-
 def fetch_utxo_details(selected_utxo, txid, vout):
     amount_msat = selected_utxo["amount_msat"]
     if not amount_msat:
@@ -241,21 +248,6 @@ def fetch_utxo_details(selected_utxo, txid, vout):
     utxo_amount_btc = amount_msat / 100_000_000_000
     plugin.log(f"[DEBUG] Amount in BTC: {utxo_amount_btc}")
     return utxo_amount_btc
-
-def verify_address(address):    
-    try:
-        listaddresses_result = plugin.rpc.listaddresses()
-        valid_addresses = [
-            entry[key] for entry in listaddresses_result.get("addresses", [])
-            for key in ("bech32", "p2tr") if key in entry
-        ]
-        if address not in valid_addresses:
-            plugin.log(f"[ERROR] Address {address} is not owned by this node", level="error")
-            raise Exception(f"Recipient address {address} is not owned by this node")
-    except RpcError as e:
-        plugin.log(f"[SIERRA] RPC Error: {str(e)}")
-        raise Exception(f"Failed to verify address: {str(e)}")
-    plugin.log(f"[INFO] Address {address} is valid and owned by this node")
 
 def create_mock_psbt(selected_utxo, rpc_connection, address, utxo_amount_btc):
     utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
@@ -290,7 +282,7 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
         desired_child_fee = fee
         plugin.log(f"[FEE] Using user-specified desired child fee: {desired_child_fee} sats")
     else:  # amount.endswith('satvb')
-        target_feerate = fee_rate  # Validation already done
+        target_feerate = fee_rate
         if parent_fee_rate < target_feerate:
             try:
                 desired_child_fee = calculate_child_fee(
@@ -446,7 +438,6 @@ def build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_r
         "sendrawtransaction_command": f"bitcoin-cli sendrawtransaction {final_tx_hex}",
         "notice": "Inputs used in this PSBT are now reserved. If you do not broadcast this transaction, you must manually unreserve them",
         "unreserve_inputs_command": f"lightning-cli unreserveinputs {finalized_psbt_base64}",
-        #"message3": "Alternatively, you can restart Core Lightning to release all input reservations"
     }
     return response
 
@@ -468,6 +459,34 @@ def yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt):
         plugin.log(f"[ERROR] Error during transaction broadcast: {str(e)}")
         try_unreserve_inputs(plugin, reserved_psbt)
         raise Exception(f"Unexpected error during transaction broadcast: {str(e)}")
+    
+def inputs(txid, vout, amount, yolo):
+    input_validation(txid, vout, amount, yolo)
+    fee, fee_rate = parse_input(txid, vout, amount)
+    log_yolo(yolo)
+    validate_network()
+    return fee, fee_rate
+
+def addr():
+    address = get_new_address()
+    verify_address(address)
+    return address
+
+def utxo(txid, vout):
+    funds, available_utxos = get_utxos()
+    selected_utxo = select_utxo(available_utxos, txid, vout)
+    return funds, available_utxos, selected_utxo
+
+def final_tx(rpc_connection, utxo_selector, address, recipient_amount):
+    second_psbt, second_child_vsize = create_PSBT(rpc_connection, utxo_selector, address, recipient_amount)
+    finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(second_psbt, rpc_connection)
+    signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, reserved_psbt)
+    return signed_child_fee, second_child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt
+
+def calculate_response(signed_child_fee, parent_fee, parent_vsize, second_child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex):
+    child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, second_child_vsize)
+    response = build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, second_child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex)
+    return response
 
 @plugin.method("bumpchannelopen",
                desc="Creates a CPFP transaction to bump the feerate of a parent output, with checks for emergency reserve.",
@@ -485,48 +504,29 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10satvb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
-
-    input_validation(txid, vout, amount, yolo)
-    fee, fee_rate = parse_input(txid, vout, amount)
-    log_yolo(yolo)
-
-    address = get_new_address()
-
-    validate_network()
-
-    funds, available_utxos = get_utxos()
-
-    selected_utxo = select_utxo(available_utxos, txid, vout)
+    fee, fee_rate = inputs(txid, vout, amount, yolo)
+    address = addr()
+    funds, available_utxos, selected_utxo = utxo(txid, vout)
 
     rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize = parent_tx_details(txid)
-
     if tx.get("confirmations", 0) > 0:
         raise Exception ("Transaction is already confirmed and cannot be bumped")
-
+    
     utxo_amount_btc = fetch_utxo_details(selected_utxo,txid, vout)
-
-    verify_address(address)
 
     first_child_vsize, utxo_selector = create_mock_psbt(selected_utxo, rpc_connection, address, utxo_amount_btc)
 
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize)
+    
     if total_unreserved_sats - child_fee < 25000:
         validate_emergency_reserve(total_unreserved_sats, child_fee)
-
     if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
         return no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee)
-
+    
     recipient_amount = calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc)
+    signed_child_fee, second_child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
 
-    second_psbt, second_child_vsize = create_PSBT(rpc_connection, utxo_selector, address, recipient_amount)
-
-    finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(second_psbt, rpc_connection)
-
-    signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, reserved_psbt)
-
-    child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, second_child_vsize)
-
-    response = build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, second_child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex)
+    response = calculate_response(signed_child_fee, parent_fee, parent_vsize, second_child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
 
     if yolo is not None and yolo == "yolo":
         response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
