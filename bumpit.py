@@ -248,31 +248,31 @@ def fetch_utxo_details(selected_utxo, txid, vout):
     plugin.log(f"[DEBUG] Amount in BTC: {utxo_amount_btc}")
     return utxo_amount_btc
 
-def create_mock_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc):
+def create_psbt(rpc_connection, utxo_selector, address, amount):
     try:
-        rpc_result = rpc_connection.createpsbt(utxo_selector, [{address: utxo_amount_btc}])
+        rpc_result = rpc_connection.createpsbt(utxo_selector, [{address: amount}])
         plugin.log(f"[DEBUG] Contents of PSBT: {rpc_result}")
         updated_psbt = rpc_connection.utxoupdatepsbt(rpc_result)
         plugin.log(f"[DEBUG] Updated PSBT: {updated_psbt}")
-        first_child_analyzed = rpc_connection.analyzepsbt(updated_psbt)
-        plugin.log(f"[DEBUG] First child analyzed: {first_child_analyzed}")
-        first_psbt = updated_psbt
-        first_child_vsize = first_child_analyzed.get("estimated_vsize")
-        first_child_feerate = first_child_analyzed.get("estimated_feerate")
-        first_child_fee = first_child_analyzed.get("fee")
-        plugin.log(f"[TRANSACTION DETAILS] PSBT: {first_psbt}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated vsize: {first_child_vsize}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee rate: {first_child_feerate}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee: {first_child_fee}")
+        child_analyzed = rpc_connection.analyzepsbt(updated_psbt)
+        plugin.log(f"[DEBUG] First child analyzed: {child_analyzed}")
+        psbt = updated_psbt
+        child_vsize = child_analyzed.get("estimated_vsize")
+        child_feerate = child_analyzed.get("estimated_feerate")
+        child_fee = child_analyzed.get("fee")
+        plugin.log(f"[TRANSACTION DETAILS] PSBT: {psbt}")
+        plugin.log(f"[TRANSACTION_DETAILS] Estimated vsize: {child_vsize}")
+        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee rate: {child_feerate}")
+        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee: {child_fee}")
     except (JSONRPCException, RpcError) as e:
         plugin.log(f"[SIERRA] RPC Error during PSBT creation: {str(e)}")
         raise Exception(f"Failed to create PSBT: {str(e)}")
     except Exception as e:
         plugin.log(f"[ROMEO] Error during PSBT creation: {str(e)}")
         raise Exception(f"Unexpected error during PSBT creation: {str(e)}")
-    return first_child_vsize, utxo_selector
+    return psbt, child_vsize
 
-def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize):
+def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, child_vsize):
     plugin.log(f"[DEBUG] Before Step 9 - amount: {amount}, type: {type(amount)}", level="debug")
     total_unreserved_sats = sum(utxo["amount_msat"] // 1000 for utxo in available_utxos)
     if amount.endswith('sats'):
@@ -285,7 +285,7 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
                 desired_child_fee = calculate_child_fee(
                     parent_fee=parent_fee,
                     parent_vsize=parent_vsize,
-                    child_vsize=first_child_vsize,
+                    child_vsize=child_vsize,
                     desired_total_feerate=target_feerate
                 )
                 plugin.log(f"[FEE] Calculated desired child fee from feerate: {desired_child_fee} sats")
@@ -320,32 +320,8 @@ def calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_
     utxo_amount_btc = format(utxo_amount_btc, '.8f')
     recipient_amount = float(utxo_amount_btc) - (float(desired_child_fee) / 10**8)
     recipient_amount = format(recipient_amount, '.8f')
-    plugin.log(f"[UNIFORM] _utxo_amount_btc: {utxo_amount_btc}, Recipient amount: {recipient_amount}, first_child_fee: {desired_child_fee}")
+    plugin.log(f"[UNIFORM] _utxo_amount_btc: {utxo_amount_btc}, Recipient amount: {recipient_amount}, child_fee: {desired_child_fee}")
     return recipient_amount
-
-def create_PSBT(rpc_connection, utxo_selector, address, recipient_amount):
-    try:
-        rpc_result2 = rpc_connection.createpsbt(utxo_selector, [{address: recipient_amount}])
-        plugin.log(f"[DEBUG] Contents of second PSBT: {rpc_result2}")
-        updated_psbt2 = rpc_connection.utxoupdatepsbt(rpc_result2)
-        plugin.log(f"[DEBUG] Updated PSBT2: {updated_psbt2}")
-        second_child_analyzed = rpc_connection.analyzepsbt(updated_psbt2)
-        plugin.log(f"[DEBUG] Second child analyzed: {second_child_analyzed}")
-        second_psbt = updated_psbt2
-        second_child_vsize = second_child_analyzed.get("estimated_vsize")
-        second_child_feerate = second_child_analyzed.get("estimated_feerate")
-        second_child_fee = second_child_analyzed.get("fee")
-        plugin.log(f"[TRANSACTION_DETAILS] PSBT: {second_psbt}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated vsize: {second_child_vsize}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee rate: {second_child_feerate}")
-        plugin.log(f"[TRANSACTION_DETAILS] Estimated fee: {second_child_fee}")
-    except (JSONRPCException, RpcError) as e:
-        plugin.log(f"[SIERRA] RPC Error during PSBT creation: {str(e)}")
-        raise Exception(f"Failed to create second PSBT: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ROMEO] Error during PSBT creation: {str(e)}")
-        raise Exception(f"Unexpected error during second PSBT creation: {str(e)}")
-    return second_psbt, second_child_vsize
 
 def reserve_sign_PSBT(second_psbt, rpc_connection):
     try:
@@ -374,18 +350,18 @@ def reserve_sign_PSBT(second_psbt, rpc_connection):
         raise Exception(f"Unexpected error during PSBT signing: {str(e)}")
     return finalized_psbt_base64, reserved_psbt
 
-def analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, reserved_psbt):
+def analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserved_psbt):
     try:
         signed_child_decoded = rpc_connection.decodepsbt(finalized_psbt_base64)
         plugin.log(f"[DEBUG] signed_child_decoded after finalization: {signed_child_decoded}")
         signed_child_fee = signed_child_decoded.get("fee")
         try:
-            feerate_satvbyte = (float(signed_child_fee) * 1e8) / int(second_child_vsize)
+            feerate_satvbyte = (float(signed_child_fee) * 1e8) / int(child_vsize)
         except (TypeError, ValueError, ZeroDivisionError) as e:
             plugin.log(f"[ERROR] Failed to compute feerate: {str(e)}")
             feerate_satvbyte = 0
         plugin.log(f"[DEBUG] Contents of signed_child_fee: {signed_child_fee}")
-        plugin.log(f"[DEBUG] Contents of signed_child_vsize: {second_child_vsize}")
+        plugin.log(f"[DEBUG] Contents of signed_child_vsize: {child_vsize}")
         plugin.log(f"[DEBUG] Contents of signed_child_feerate: {feerate_satvbyte}")
         fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
         final_tx_hex = fully_finalized.get("hex")
@@ -407,14 +383,14 @@ def analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, 
         raise Exception(f"Unexpected error during transaction analysis: {str(e)}")
     return signed_child_fee, feerate_satvbyte, final_tx_hex
 
-def caculate_totals(signed_child_fee, parent_fee, parent_vsize, second_child_vsize):
+def caculate_totals(signed_child_fee, parent_fee, parent_vsize, child_vsize):
     child_fee_satoshis = float(signed_child_fee) * 100000000
     total_fees = int(parent_fee) + int(child_fee_satoshis)
-    total_vsizes = int(parent_vsize) + int(second_child_vsize)
+    total_vsizes = int(parent_vsize) + int(child_vsize)
     total_feerate = total_fees / total_vsizes
     return child_fee_satoshis, total_fees, total_vsizes, total_feerate
 
-def build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, second_child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex):
+def build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex):
     response = {
         "message": "This is beta software, this might spend all your money. Please make sure to run bitcoin-cli analyzepsbt to verify "
                    "the fee before broadcasting the transaction",
@@ -423,7 +399,7 @@ def build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_r
         "parent_vsize": int(parent_vsize),
         "parent_feerate": float(parent_fee_rate),
         "child_fee": int(child_fee_satoshis),
-        "child_vsize": int(second_child_vsize),
+        "child_vsize": int(child_vsize),
         "child_feerate": float(feerate_satvbyte),
         "total_fees": total_fees,
         "total_vsizes": total_vsizes,
@@ -473,14 +449,14 @@ def utxo(txid, vout):
     return funds, available_utxos, selected_utxo
 
 def final_tx(rpc_connection, utxo_selector, address, recipient_amount):
-    second_psbt, second_child_vsize = create_PSBT(rpc_connection, utxo_selector, address, recipient_amount)
-    finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(second_psbt, rpc_connection)
-    signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, second_child_vsize, reserved_psbt)
-    return signed_child_fee, second_child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt
+    psbt, child_vsize = create_psbt(rpc_connection, utxo_selector, address, recipient_amount)
+    finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(psbt, rpc_connection)
+    signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserved_psbt)
+    return signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt
 
-def calculate_response(signed_child_fee, parent_fee, parent_vsize, second_child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex):
-    child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, second_child_vsize)
-    response = build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, second_child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex)
+def calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex):
+    child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, child_vsize)
+    response = build_response(finalized_psbt_base64, parent_fee, parent_vsize, parent_fee_rate, child_fee_satoshis, child_vsize, feerate_satvbyte, total_fees, total_vsizes, total_feerate, fee_rate, amount, final_tx_hex)
     return response
 
 @plugin.method("bumpchannelopen",
@@ -512,9 +488,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
 
-    first_child_vsize, utxo_selector = create_mock_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
+    psbt, child_vsize = create_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
 
-    desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize)
+    desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, child_vsize)
     
     if total_unreserved_sats - child_fee < 25000:
         validate_emergency_reserve(total_unreserved_sats, child_fee)
@@ -522,9 +498,9 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         return no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee)
     
     recipient_amount = calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc)
-    signed_child_fee, second_child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
+    signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
 
-    response = calculate_response(signed_child_fee, parent_fee, parent_vsize, second_child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
+    response = calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
 
     if yolo is not None and yolo == "yolo":
         response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
