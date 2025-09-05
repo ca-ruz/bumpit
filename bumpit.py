@@ -2,7 +2,6 @@
 from decimal import Decimal
 from pyln.client import Plugin, RpcError
 import json
-from bitcointx.core.psbt import PartiallySignedTransaction
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 import os
 import sys
@@ -249,9 +248,7 @@ def fetch_utxo_details(selected_utxo, txid, vout):
     plugin.log(f"[DEBUG] Amount in BTC: {utxo_amount_btc}")
     return utxo_amount_btc
 
-def create_mock_psbt(selected_utxo, rpc_connection, address, utxo_amount_btc):
-    utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
-    plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
+def create_mock_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc):
     try:
         rpc_result = rpc_connection.createpsbt(utxo_selector, [{address: utxo_amount_btc}])
         plugin.log(f"[DEBUG] Contents of PSBT: {rpc_result}")
@@ -330,8 +327,6 @@ def create_PSBT(rpc_connection, utxo_selector, address, recipient_amount):
     try:
         rpc_result2 = rpc_connection.createpsbt(utxo_selector, [{address: recipient_amount}])
         plugin.log(f"[DEBUG] Contents of second PSBT: {rpc_result2}")
-        new_psbt2 = PartiallySignedTransaction.from_base64(rpc_result2)
-        plugin.log(f"[DEBUG] Contents of new_psbt2: {new_psbt2}")
         updated_psbt2 = rpc_connection.utxoupdatepsbt(rpc_result2)
         plugin.log(f"[DEBUG] Updated PSBT2: {updated_psbt2}")
         second_child_analyzed = rpc_connection.analyzepsbt(updated_psbt2)
@@ -514,7 +509,10 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     
     utxo_amount_btc = fetch_utxo_details(selected_utxo,txid, vout)
 
-    first_child_vsize, utxo_selector = create_mock_psbt(selected_utxo, rpc_connection, address, utxo_amount_btc)
+    utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
+    plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
+
+    first_child_vsize, utxo_selector = create_mock_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
 
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, first_child_vsize)
     
