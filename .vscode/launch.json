@@ -15,7 +15,8 @@
           "remoteRoot": "${workspaceFolder}"
         }
       ],
-      "justMyCode": false
+      "justMyCode": false,
+      "internalConsoleOptions": "neverOpen"
     }
   ]
 }

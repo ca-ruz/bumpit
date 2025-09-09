@@ -5,6 +5,7 @@ import json
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 import os
 import sys
+import logging
 
 # import debugpy
 # debugpy.listen(("localhost", 5678))
@@ -88,27 +89,25 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
     except (TypeError, ValueError) as e:
         raise CPFPError("Invalid fee calculation: incompatible number types") from e
 
-def wrap_method(func):
-    """
-    Wraps a plugin method to catch TypeError from argument validation and return clean JSON-RPC errors.
-    """
-    def wrapper(plugin, *args, **kwargs):
-        try:
-            return func(plugin, *args, **kwargs)
-        except TypeError as e:
-            plugin.log(f"[ERROR] Invalid arguments: {str(e)}")
-            raise e
-        except Exception as e:
-            plugin.log(f"[ERROR] Unexpected error: {str(e)}")
-            raise e
-    return wrapper
-
-def try_unreserve_inputs(plugin, psbt):
+def try_unreserve_inputs(psbt):
     try:
         plugin.rpc.unreserveinputs(psbt=psbt)
         plugin.log("[CLEANUP] Successfully unreserved inputs via PSBT")
     except Exception as e:
         plugin.log(f"[ERROR] UNABLE TO UNRESERVE INPUTS: {e}")
+
+def unreserve_on_failure(func):
+    """
+    Wraps a plugin method to catch TypeError from argument validation and return clean JSON-RPC errors.
+    """
+    def wrapper(reserved_psbt, *args, **kwargs):
+        try:
+            return func(reserved_psbt, *args, **kwargs)
+        except Exception as e:
+            plugin.log(f"[ROMEO] Error during PSBT signing: {str(e)}")
+            try_unreserve_inputs(reserved_psbt)
+            raise e
+    return wrapper
 
 def input_validation(txid, vout, amount, yolo):
     if not isinstance(txid, str) or not txid:
@@ -300,6 +299,7 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
     return desired_child_fee, total_unreserved_sats, child_fee
    
 def validate_emergency_reserve(total_unreserved_sats, child_fee):
+    # import pdb; pdb.set_trace()
     would_leave = total_unreserved_sats - child_fee
     plugin.log(f"[WARNING] Bump would leave {total_unreserved_sats - child_fee} sats, below 25000 sat emergency reserve.")
     raise Exception(f"Bump would leave {would_leave} sats, below 25000 sat emergency reserve.")
@@ -323,31 +323,24 @@ def calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_
     plugin.log(f"[UNIFORM] _utxo_amount_btc: {utxo_amount_btc}, Recipient amount: {recipient_amount}, child_fee: {desired_child_fee}")
     return recipient_amount
 
+@unreserve_on_failure
 def reserve_sign_PSBT(second_psbt, rpc_connection):
-    try:
-        plugin.rpc.reserveinputs(psbt=second_psbt)
-        reserved_psbt = second_psbt
-        second_signed_psbt = plugin.rpc.signpsbt(psbt=second_psbt)
-        plugin.log(f"[DEBUG] signpsbt response: {second_signed_psbt}")
-        second_child_psbt = second_signed_psbt.get("signed_psbt", second_signed_psbt.get("psbt"))
-        if not second_child_psbt:
-            try_unreserve_inputs(plugin, reserved_psbt)
-            raise Exception("Signing failed. No signed PSBT returned.")
-        plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
-        finalized_psbt = rpc_connection.finalizepsbt(second_child_psbt, False)
-        plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
-        finalized_psbt_base64 = finalized_psbt.get("psbt")
-        if not finalized_psbt_base64:
-            try_unreserve_inputs(plugin, reserved_psbt)
-            raise Exception("PSBT was not properly finalized. No PSBT hex returned.")
-    except (JSONRPCException, RpcError) as e:
-        plugin.log(f"[SIERRA] RPC Error during PSBT signing: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
-        raise Exception(f"Failed to reserve or sign PSBT: {str(e)}")
-    except Exception as e:
-        plugin.log(f"[ROMEO] Error during PSBT signing: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
-        raise Exception(f"Unexpected error during PSBT signing: {str(e)}")
+    plugin.rpc.reserveinputs(psbt=second_psbt)
+    # plugin.rpc.reserveinputs(psbt=second_psbt)
+    reserved_psbt = second_psbt
+    second_signed_psbt = plugin.rpc.signpsbt(psbt=second_psbt)
+    plugin.log(f"[DEBUG] signpsbt response: {second_signed_psbt}")
+    second_child_psbt = second_signed_psbt.get("signed_psbt", second_signed_psbt.get("psbt"))
+    if not second_child_psbt:
+        try_unreserve_inputs(reserved_psbt)
+        raise Exception("Signing failed. No signed PSBT returned.")
+    plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
+    finalized_psbt = rpc_connection.finalizepsbt(second_child_psbt, False)
+    plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
+    finalized_psbt_base64 = finalized_psbt.get("psbt")
+    if not finalized_psbt_base64:
+        try_unreserve_inputs(reserved_psbt)
+        raise Exception("PSBT was not properly finalized. No PSBT hex returned.")
     return finalized_psbt_base64, reserved_psbt
 
 def analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserved_psbt):
@@ -366,7 +359,7 @@ def analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserve
         fully_finalized = rpc_connection.finalizepsbt(finalized_psbt_base64, True)
         final_tx_hex = fully_finalized.get("hex")
         if not final_tx_hex:
-            try_unreserve_inputs(plugin, reserved_psbt)
+            try_unreserve_inputs(reserved_psbt)
             raise Exception("Could not extract hex from finalized PSBT.")
         decoded_tx = rpc_connection.decoderawtransaction(final_tx_hex)
         actual_vsize = decoded_tx.get("vsize")
@@ -375,11 +368,11 @@ def analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserve
         plugin.log(f"[DEBUG] Final transaction ID (txid): {txid}")
     except (JSONRPCException, RpcError) as e:
         plugin.log(f"[SIERRA] RPC Error during transaction analysis: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
+        try_unreserve_inputs(reserved_psbt)
         raise Exception(f"Failed to analyze transaction: {str(e)}")
     except Exception as e:
         plugin.log(f"[ROMEO] Error during transaction analysis: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
+        try_unreserve_inputs(reserved_psbt)
         raise Exception(f"Unexpected error during transaction analysis: {str(e)}")
     return signed_child_fee, feerate_satvbyte, final_tx_hex
 
@@ -424,11 +417,11 @@ def yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt):
         return response
     except (JSONRPCException, RpcError) as e:
         plugin.log(f"[SIERRA] RPC Error during transaction broadcast: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
+        try_unreserve_inputs(reserved_psbt)
         raise Exception(f"Failed to broadcast transaction: {str(e)}")
     except Exception as e:
         plugin.log(f"[ERROR] Error during transaction broadcast: {str(e)}")
-        try_unreserve_inputs(plugin, reserved_psbt)
+        try_unreserve_inputs(reserved_psbt)
         raise Exception(f"Unexpected error during transaction broadcast: {str(e)}")
     
 def inputs(txid, vout, amount, yolo):
@@ -475,6 +468,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         amount: Fee amount with suffix (e.g., '1000sats' for fixed fee, '10satvb' for fee rate in sat/vB)
         yolo: Set to 'yolo' to send transaction automatically
     """
+    # import pdb; pdb.set_trace()
     fee, fee_rate = inputs(txid, vout, amount, yolo)
     address = addr()
     funds, available_utxos, selected_utxo = utxo(txid, vout)
@@ -488,7 +482,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
 
-    psbt, child_vsize = create_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
+    _, child_vsize = create_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
 
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, child_vsize)
     
