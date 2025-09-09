@@ -1,19 +1,17 @@
-# TODO: Fix this test
-
 import os
 from pyln.client import RpcError
 from pyln.testing.fixtures import *  # noqa: F403
-from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG, FUNDAMOUNT
+from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
+import pytest
 
 # import debugpy
 # debugpy.listen(("localhost", 5678))
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
-FUNDAMOUNT = 1000000  # 1M satoshis
 
 def test_unreserve_on_failure(node_factory):
     """
-    Test that bumpchannelopen unreserves inputs when an error occurs after input reservation.
+    Test that bumpchannelopen unreserves inputs when a failure occurs after input reservation (e.g., dust error on broadcast in yolo mode).
     """
     # Set up nodes with plugin options
     opts = {
@@ -24,16 +22,17 @@ def test_unreserve_on_failure(node_factory):
     opts.update(pluginopt)
     l1, l2 = node_factory.get_nodes(2, opts=opts)
 
-    # Connect nodes and fund l1
+    # Connect nodes and fund l1 with two transactions
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
-    bitcoind.rpc.sendtoaddress(addr, 3)  # Increased to 3 BTC for sufficient change
+    bitcoind.rpc.sendtoaddress(addr, 0.002)  # 200,000 satoshis
+    bitcoind.rpc.sendtoaddress(addr, 0.001)  # 100,000 satoshis for reserve
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
 
     # Fund channel, keep transaction unconfirmed
-    funding = l1.rpc.fundchannel(l2.info['id'], FUNDAMOUNT, feerate="3000perkb")
+    funding = l1.rpc.fundchannel(l2.info['id'], 100000, feerate="3000perkb")  # 100,000 satoshis
     funding_txid = funding['txid']
     print(f"Funding transaction ID: {funding_txid}")
 
@@ -45,60 +44,46 @@ def test_unreserve_on_failure(node_factory):
     )
     assert change_output is not None, "Could not find unreserved change output"
 
-    # Create a PSBT and reserve the input
-    addr2 = l1.rpc.newaddr()['bech32']
-    utxo_amount_btc = change_output['amount_msat'] / 100_000_000_000
-    output_amount = utxo_amount_btc - 0.00002000
-    assert output_amount > 0.00000294, f"Output amount {output_amount} BTC below dust limit (~294 satoshis)"
-    
-    mock_psbt = bitcoind.rpc.createpsbt(
-        [{"txid": funding_txid, "vout": change_output['output']}],
-        [{addr2: round(output_amount, 8)}]
-    )
-    print(f"Created mock PSBT: {mock_psbt}")
-    l1.rpc.reserveinputs(mock_psbt)
-    print(f"Reserved inputs for PSBT: {mock_psbt}")
-
-    # Verify the input is reserved
+    # Verify the input starts unreserved
     outputs_before = l1.rpc.listfunds()['outputs']
     for output in outputs_before:
         if output['txid'] == change_output['txid'] and output['output'] == change_output['output']:
-            assert output['reserved'], "UTXO should be reserved after reserveinputs"
+            assert not output['reserved'], "UTXO should start unreserved"
             break
     else:
         assert False, "Change UTXO not found in funds before bumpchannelopen"
 
-    # Call bumpchannelopen with the same input, expecting failure due to reserved UTXO
+    # Calculate fee to leave 293 satoshis (dust)
+    utxo_amount_sat = change_output['amount_msat'] // 1000
+    high_fee_sat = utxo_amount_sat - 293  # Leave 293 sat (below dust)
+    amount = f"{high_fee_sat}sats"
+    print(f"Using amount to trigger dust error: {amount}")
+
+    # Verify total unreserved balance satisfies emergency reserve
+    total_unreserved_sats = sum(o['amount_msat'] // 1000 for o in outputs if not o.get('reserved', False))
+    print(f"Total unreserved satoshis: {total_unreserved_sats}")
+    assert total_unreserved_sats - high_fee_sat >= 25000, f"Fee {high_fee_sat} would leave {total_unreserved_sats - high_fee_sat} satoshis, below 25,000 sat emergency reserve"
+
+    # Call bumpchannelopen with yolo mode, expecting failure after reservation (dust on broadcast)
     with pytest.raises(RpcError) as exc_info:
         result = l1.rpc.bumpchannelopen(
             txid=funding_txid,
             vout=change_output['output'],
-            amount="1000sats"
+            amount=amount,
+            yolo="yolo"
         )
-        outputs_mid = l1.rpc.listfunds()['outputs']
-        for output in outputs_mid:
-            if output['txid'] == change_output['txid'] and output['output'] == change_output['output']:
-                assert output['reserved'], "UTXO should still be reserved during bumpchannelopen"
-                break
         print(f"Unexpected success: {result}")
         assert False, "Expected an error but bumpchannelopen succeeded"
-    # except RpcError as e:
-    #     print(f"Expected error response: {str(e)}")
-    #     assert any(x in str(e).lower() for x in ["cannot reserve", "already reserved", "bad utxo"]), f"Unexpected error: {e}"
+    print(f"Error from bumpchannelopen: {exc_info.value.error['message']}")
+    error_msg = exc_info.value.error["message"].lower()
+    assert "dust" in error_msg, f"Unexpected error (expected dust-related failure): {error_msg}"
 
-    # Verify that the inputs are unreserved
+    # Verify that the inputs are unreserved after the error
     outputs_after = l1.rpc.listfunds()['outputs']
     for output in outputs_after:
         if output['txid'] == change_output['txid'] and output['output'] == change_output['output']:
-            assert not output['reserved'], "UTXO should be unreserved after error"
+            print(f"UTXO reserved status after error: {output['reserved']}")
+            assert not output['reserved'], "UTXO should be unreserved after plugin failure"
             break
     else:
         assert False, "Change UTXO not found in funds after error"
-        
-
-
-
-    # Step 4: Assert the outcome
-    assert exc_info.type is RpcError
-    assert exc_info.value.error["message"] == f"Error while processing bumpchannelopen: UTXO {funding_txid}:{vout2} not found in available UTXOs"
-    # print(f"Success: Cannot bump confirmed transaction: {exc_info.value.error["message"]}")
