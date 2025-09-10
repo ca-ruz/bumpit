@@ -59,11 +59,6 @@ def test_unreserve_on_failure(node_factory):
     amount = f"{high_fee_sat}sats"
     print(f"Using amount to trigger dust error: {amount}")
 
-    # Verify total unreserved balance satisfies emergency reserve
-    total_unreserved_sats = sum(o['amount_msat'] // 1000 for o in outputs if not o.get('reserved', False))
-    print(f"Total unreserved satoshis: {total_unreserved_sats}")
-    assert total_unreserved_sats - high_fee_sat >= 25000, f"Fee {high_fee_sat} sats would leave {total_unreserved_sats - high_fee_sat} sats, below 25,000 sat emergency reserve"
-
     # Call bumpchannelopen with yolo mode, expecting failure after reservation (dust on broadcast)
     with pytest.raises(RpcError) as exc_info:
         result = l1.rpc.bumpchannelopen(

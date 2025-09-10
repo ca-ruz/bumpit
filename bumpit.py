@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
+import os
 from decimal import Decimal
 from pyln.client import Plugin, RpcError
-import json
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
-import os
-import sys
-import logging
 
 # import debugpy
 # debugpy.listen(("localhost", 5678))
 
 plugin = Plugin()
 
-class CPFPError(Exception):
-    """Custom exception for CPFP-related errors"""
-    pass
+class PSBTPostReservationException(Exception):
+    """Custom exception for errors that are caught after reserving the inputs so we can unreserve them"""
+    def __init__(self, message, reserved_psbt):
+        super().__init__(message)
+        self.reserved_psbt = reserved_psbt
 
 # Plugin configuration options
 plugin.add_option('bump_brpc_user', "__cookie__", 'bitcoin rpc user')
@@ -324,22 +323,18 @@ def calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_
     return recipient_amount
 
 @unreserve_on_failure
-def reserve_sign_PSBT(second_psbt, rpc_connection):
-    plugin.rpc.reserveinputs(psbt=second_psbt)
-    # plugin.rpc.reserveinputs(psbt=second_psbt)
+def sign_psbt(second_psbt, rpc_connection):
     reserved_psbt = second_psbt
     second_signed_psbt = plugin.rpc.signpsbt(psbt=second_psbt)
     plugin.log(f"[DEBUG] signpsbt response: {second_signed_psbt}")
     second_child_psbt = second_signed_psbt.get("signed_psbt", second_signed_psbt.get("psbt"))
     if not second_child_psbt:
-        try_unreserve_inputs(reserved_psbt)
         raise Exception("Signing failed. No signed PSBT returned.")
     plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
     finalized_psbt = rpc_connection.finalizepsbt(second_child_psbt, False)
     plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
     finalized_psbt_base64 = finalized_psbt.get("psbt")
     if not finalized_psbt_base64:
-        try_unreserve_inputs(reserved_psbt)
         raise Exception("PSBT was not properly finalized. No PSBT hex returned.")
     return finalized_psbt_base64, reserved_psbt
 
@@ -443,9 +438,14 @@ def utxo(txid, vout):
 
 def final_tx(rpc_connection, utxo_selector, address, recipient_amount):
     psbt, child_vsize = create_psbt(rpc_connection, utxo_selector, address, recipient_amount)
-    finalized_psbt_base64, reserved_psbt = reserve_sign_PSBT(psbt, rpc_connection)
-    signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, reserved_psbt)
-    return signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt
+    plugin.rpc.reserveinputs(psbt)
+
+    try:
+        finalized_psbt_base64, signed_psbt = sign_psbt(psbt, rpc_connection)
+        signed_child_fee, feerate_satvbyte, final_tx_hex = analyze_final_tx(rpc_connection, finalized_psbt_base64, child_vsize, signed_psbt)
+    except Exception as e:
+        raise PSBTPostReservationException(f"Error while transaction is reserved {str(e)}", psbt)
+    return signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, signed_psbt
 
 def calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex):
     child_fee_satoshis, total_fees, total_vsizes, total_feerate = caculate_totals(signed_child_fee, parent_fee, parent_vsize, child_vsize)
@@ -472,32 +472,29 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
     fee, fee_rate = inputs(txid, vout, amount, yolo)
     address = addr()
     funds, available_utxos, selected_utxo = utxo(txid, vout)
-
     rpc_connection, tx, parent_fee, parent_fee_rate, parent_vsize = parent_tx_details(txid)
     if tx.get("confirmations", 0) > 0:
         raise Exception ("Transaction is already confirmed and cannot be bumped")
-    
     utxo_amount_btc = fetch_utxo_details(selected_utxo,txid, vout)
-
     utxo_selector = [{"txid": selected_utxo["txid"], "vout": selected_utxo["output"]}]
     plugin.log(f"[MIKE] Bumping selected output using UTXO {utxo_selector}")
-
     _, child_vsize = create_psbt(rpc_connection, utxo_selector, address, utxo_amount_btc)
-
     desired_child_fee, total_unreserved_sats, child_fee = get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, parent_fee, parent_vsize, child_vsize)
-    
     if total_unreserved_sats - child_fee < 25000:
         validate_emergency_reserve(total_unreserved_sats, child_fee)
     if amount.endswith('satvb') and parent_fee_rate >= fee_rate:
         return no_cpfp_needed(fee_rate, parent_fee_rate, parent_fee)
-    
     recipient_amount = calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_btc)
-    signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
 
-    response = calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
-
-    if yolo is not None and yolo == "yolo":
-        response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
+    try:
+        signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
+        response = calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
+        if yolo is not None and yolo == "yolo":
+            response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
+    except Exception as e:
+        plugin.log(f"[ROMEO] Error during PSBT signing: {str(e)}")
+        try_unreserve_inputs(reserved_psbt)
+        raise e
 
     return response
 
