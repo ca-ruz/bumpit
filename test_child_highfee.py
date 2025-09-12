@@ -2,6 +2,9 @@ import os
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, FUNDAMOUNT, BITCOIND_CONFIG
 
+# import debugpy
+# debugpy.listen(("localhost", 5678))
+
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 1000000  # Match the manual test amount of 1M sats
 
@@ -84,16 +87,12 @@ def test_child_highfee(node_factory):
         txid=funding_txid,
         vout=change_output['output'],
         amount=target_feerate,
-        yolo="dryrun"
+        yolo="yolo"
     )
+    print(f"Result: {result}")
     
     # Handle error responses
-    if 'code' in result and result['code'] == -32600:
-        print(f"Error response: {result['message']}")
-        assert "reserve" in result['message'].lower() or "confirmed" in result['message'].lower(), (
-            f"Unexpected error: {result['message']}"
-        )
-        return
+    assert 'code' not in result
     
     # Extract plugin results
     plugin_parent_fee = result.get('parent_fee', 0)
@@ -142,4 +141,3 @@ def test_child_highfee(node_factory):
     assert abs(plugin_total_feerate - calculated_total_feerate) < 0.01, (
         f"Plugin total feerate mismatch: plugin={plugin_total_feerate:.2f}, calculated={calculated_total_feerate:.2f}"
     )
-    

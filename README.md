@@ -163,3 +163,5 @@ The plugin accepts the following configuration options:
 3. Make your changes
 4. Run the test suite to ensure everything works
 5. Submit a pull request
+
+Note: If you wish to contribute and you are having issues with the bitcoin rpc server timing out, add this to your `bitcoin.conf` file: `rpcservertimeout=0`.

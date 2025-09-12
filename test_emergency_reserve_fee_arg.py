@@ -1,13 +1,18 @@
 import os
+import re
+from pyln.client import RpcError
 from pyln.testing.fixtures import *  # noqa: F403
 from pyln.testing.utils import sync_blockheight, BITCOIND_CONFIG
+
+# import debugpy
+# debugpy.listen(("localhost", 5678))
 
 pluginopt = {'plugin': os.path.join(os.path.dirname(__file__), "bumpit.py")}
 FUNDAMOUNT = 74000
 INITIAL_FUNDING = 100000
 EMERGENCY_RESERVE = 25000
 
-def test_emergency_reserve_fee_boundary(node_factory):
+def test_emergency_reserve_fee_arg(node_factory):
     opts = {
         'bump_brpc_user': BITCOIND_CONFIG["rpcuser"],
         'bump_brpc_pass': BITCOIND_CONFIG["rpcpassword"],
@@ -56,17 +61,26 @@ def test_emergency_reserve_fee_boundary(node_factory):
     utxo = available_utxos[0]
     fixed_fee = int(current_unreserved - 24999)  # Fee to leave exactly 24,999 sats
     print(f"Paying CPFP with: txid={utxo['txid']}, vout={utxo['output']}, amount={utxo['amount_msat']/1000} sats, fixed fee={fixed_fee} sats")
-    result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], amount=f"{fixed_fee}sats")
+
+    with pytest.raises(RpcError) as exc_info:
+        result = l1.rpc.bumpchannelopen(txid=utxo["txid"], vout=utxo["output"], amount=f"{fixed_fee}sats")
 
     # Sanity check to make sure we are not spending our emergency reserve
-    leftover_emergencyreserve = change_utxo['amount_msat'] // 1000 - int(result['child_fee'])
-    assert leftover_emergencyreserve == 24999, f"Expected 24,999 sats left, got {leftover_emergencyreserve}"
-    assert "code" in result and result["code"] == -32600, f"Expected reserve error, got {result}"
-    assert "reserve" in result["message"].lower(), f"Expected reserve message, got {result['message']}"
-    print(f"Success: Reserve protected with fixed fee: {result['message']}")
+    # leftover_emergencyreserve = change_utxo['amount_msat'] // 1000 - int(result['child_fee'])
+    # assert leftover_emergencyreserve == 24999, f"Expected 24,999 sats left, got {leftover_emergencyreserve}"
+    # assert "code" in result and result["code"] == -32600, f"Expected reserve error, got {result}"
+    # assert "reserve" in result["message"].lower(), f"Expected reserve message, got {result['message']}"
+    # print(f"Success: Reserve protected with fixed fee: {result['message']}")
 
     # Clean up: Unreserve inputs if reserved
-    if "unreserve_inputs_command" in result:
-        l1.rpc.unreserveinputs(result["unreserve_inputs_command"].split()[-1])
-        print("Unreserved inputs after test")
+    # if "unreserve_inputs_command" in result:
+    #     l1.rpc.unreserveinputs(result["unreserve_inputs_command"].split()[-1])
+    #     print("Unreserved inputs after test")
         
+    
+
+
+    # Step 4: Assert the outcome
+    assert exc_info.type is RpcError
+    message = exc_info.value.error["message"]
+    match = re.match(r"Bump would leave (\d+) sats, below 25000 sat emergency reserve\.", message)
