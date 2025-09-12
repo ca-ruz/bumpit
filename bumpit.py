@@ -86,7 +86,7 @@ def calculate_child_fee(parent_fee, parent_vsize, child_vsize, desired_total_fee
         child_fee = required_total_fee - parent_fee
         return child_fee
     except (TypeError, ValueError) as e:
-        raise CPFPError("Invalid fee calculation: incompatible number types") from e
+        raise Exception("Invalid fee calculation: incompatible number types") from e
 
 def try_unreserve_inputs(psbt):
     try:
@@ -287,7 +287,7 @@ def get_childfee_input(amount, available_utxos, fee, fee_rate, parent_fee_rate, 
                     desired_total_feerate=target_feerate
                 )
                 plugin.log(f"[FEE] Calculated desired child fee from feerate: {desired_child_fee} sats")
-            except CPFPError as e:
+            except Exception as e:
                 plugin.log(f"[ROMEO] CPFPError occurred: {str(e)}")
                 raise Exception(f"Failed to calculate child fee: {str(e)}")
         else:
@@ -322,14 +322,13 @@ def calc_confirmed_unreserved(funds, vout, desired_child_fee, txid, utxo_amount_
     plugin.log(f"[UNIFORM] _utxo_amount_btc: {utxo_amount_btc}, Recipient amount: {recipient_amount}, child_fee: {desired_child_fee}")
     return recipient_amount
 
-@unreserve_on_failure
 def sign_psbt(second_psbt, rpc_connection):
     reserved_psbt = second_psbt
     second_signed_psbt = plugin.rpc.signpsbt(psbt=second_psbt)
     plugin.log(f"[DEBUG] signpsbt response: {second_signed_psbt}")
     second_child_psbt = second_signed_psbt.get("signed_psbt", second_signed_psbt.get("psbt"))
     if not second_child_psbt:
-        raise Exception("Signing failed. No signed PSBT returned.")
+        raise PSBTPostReservationException("Signing failed. No signed PSBT returned.", reserved_psbt)
     plugin.log(f"[DEBUG] Signed PSBT: {second_child_psbt}")
     finalized_psbt = rpc_connection.finalizepsbt(second_child_psbt, False)
     plugin.log(f"[DEBUG] finalized_psbt: {finalized_psbt}")
@@ -488,12 +487,15 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
 
     try:
         signed_child_fee, child_vsize, finalized_psbt_base64, feerate_satvbyte, final_tx_hex, reserved_psbt = final_tx(rpc_connection, utxo_selector, address, recipient_amount)
-        response = calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
-        if yolo is not None and yolo == "yolo":
-            response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
-    except Exception as e:
-        plugin.log(f"[ROMEO] Error during PSBT signing: {str(e)}")
-        try_unreserve_inputs(reserved_psbt)
+        try:
+            response = calculate_response(signed_child_fee, parent_fee, parent_vsize, child_vsize, finalized_psbt_base64, parent_fee_rate, feerate_satvbyte, fee_rate, amount, final_tx_hex)
+            if yolo is not None and yolo == "yolo":
+                response = yolo_mode(rpc_connection, final_tx_hex, response, reserved_psbt)
+        except Exception as e:
+            raise PSBTPostReservationException(f"Error while transaction is reserved {str(e)}", reserved_psbt)
+    except PSBTPostReservationException as e:
+        plugin.log(f"[ROMEO] Error after reserving inputs: {str(e)}")
+        try_unreserve_inputs(e.reserved_psbt)
         raise e
 
     plugin.log(f"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Decoded PSBT{rpc_connection.decodepsbt(reserved_psbt)}")

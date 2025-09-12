@@ -27,12 +27,29 @@ def test_unreserve_on_failure(node_factory):
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
     bitcoind.rpc.sendtoaddress(addr, 0.002)  # 200,000 satoshis
-    # bitcoind.rpc.sendtoaddress(addr, 0.001)  # 100,000 satoshis for reserve
+    bitcoind.rpc.sendtoaddress(addr, 0.001)  # 100,000 satoshis for reserve
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
 
+    outputs = l1.rpc.listfunds()['outputs']
+    channel_funding_output = next(
+        (output for output in outputs if not output['reserved'] and output["amount_msat"] == 200000000),
+        None
+    )
+    print(f"~~~~~~~~~~~~~~~~channel funding output: {channel_funding_output}")
+    assert channel_funding_output is not None
+
+    utxos=[
+        f"{channel_funding_output['txid']}:{channel_funding_output['output']}"
+        ]
+    print(f"~~~~~~~~~~~~~~~~utxos: {utxos}")
+
     # Fund channel, keep transaction unconfirmed
-    funding = l1.rpc.fundchannel(l2.info['id'], 100000, feerate="3000perkb")  # 100,000 satoshis
+    funding = l1.rpc.fundchannel(
+        l2.info['id'], 100000, 
+        feerate="3000perkb", 
+        utxos=utxos
+        )  # 100,000 satoshis
     funding_txid = funding['txid']
     print(f"Funding transaction ID: {funding_txid}")
 
@@ -58,7 +75,7 @@ def test_unreserve_on_failure(node_factory):
 
     # Calculate fee to leave 293 satoshis (dust)
     utxo_amount_sat = change_output['amount_msat'] // 1000
-    high_fee_sat = utxo_amount_sat - 293 - 25000 # Leave 293 sat (below dust)
+    high_fee_sat = utxo_amount_sat - 293 # Leave 293 sat (below dust)
     amount = f"{high_fee_sat}sats"
     print(f"Using amount to trigger dust error: {amount}")
 
