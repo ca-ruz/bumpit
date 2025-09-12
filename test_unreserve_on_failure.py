@@ -27,7 +27,7 @@ def test_unreserve_on_failure(node_factory):
     bitcoind = l1.bitcoin
     addr = l1.rpc.newaddr()['bech32']
     bitcoind.rpc.sendtoaddress(addr, 0.002)  # 200,000 satoshis
-    bitcoind.rpc.sendtoaddress(addr, 0.001)  # 100,000 satoshis for reserve
+    # bitcoind.rpc.sendtoaddress(addr, 0.001)  # 100,000 satoshis for reserve
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
 
@@ -37,11 +37,14 @@ def test_unreserve_on_failure(node_factory):
     print(f"Funding transaction ID: {funding_txid}")
 
     # Find unreserved change output
+    listfunds = l1.rpc.listfunds()
+    print(f"~~~~~~~~~~~~~~~~~~~~~~~listfunds: {listfunds}")
     outputs = l1.rpc.listfunds()['outputs']
     change_output = next(
         (output for output in outputs if output['txid'] == funding_txid and not output['reserved']),
         None
     )
+    print(f"~~~~~~~~~~~~~~~~~~~~~~~~~~Change output: {change_output["amount_msat"]}")
     assert change_output is not None, "Could not find unreserved change output"
 
     # Verify the input starts unreserved
@@ -55,7 +58,7 @@ def test_unreserve_on_failure(node_factory):
 
     # Calculate fee to leave 293 satoshis (dust)
     utxo_amount_sat = change_output['amount_msat'] // 1000
-    high_fee_sat = utxo_amount_sat - 293  # Leave 293 sat (below dust)
+    high_fee_sat = utxo_amount_sat - 293 - 25000 # Leave 293 sat (below dust)
     amount = f"{high_fee_sat}sats"
     print(f"Using amount to trigger dust error: {amount}")
 

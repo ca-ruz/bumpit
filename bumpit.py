@@ -496,6 +496,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         try_unreserve_inputs(reserved_psbt)
         raise e
 
+    plugin.log(f"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Decoded PSBT{rpc_connection.decodepsbt(reserved_psbt)}")
     return response
 
 plugin.run()
