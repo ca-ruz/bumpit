@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+
+# /// script
+# requires-python = ">=3.9.2"
+# dependencies = [
+#   "pyln-client>=24.11.1",
+#   "python-bitcointx==1.1.5",
+#   "python-bitcoinrpc==1.0",
+# ]
+# ///
+
 from pyln.client import Plugin, RpcError
 import json
 from bitcointx.core.psbt import PartiallySignedTransaction

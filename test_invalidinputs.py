@@ -18,7 +18,7 @@ def test_invalidinputs(node_factory):
     # Setup with minimal funds
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     bitcoind = l1.bitcoin
-    addr = l1.rpc.newaddr()['bech32']
+    addr = l1.rpc.newaddr('bech32')['bech32']
     bitcoind.rpc.sendtoaddress(addr, 0.01)  # 1M sats
     bitcoind.generate_block(1)
     sync_blockheight(bitcoind, [l1, l2])
