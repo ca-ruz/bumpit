@@ -4,7 +4,7 @@ A Core Lightning plugin to create CPFP (Child Pays For Parent) transactions for 
 
 ## Prerequisites
 
-- Python 3.7+
+- Python 3.9.2+
 - Core Lightning 24.11+
 - Bitcoin Core
 - txindex in Bitcoin Core
@@ -16,23 +16,9 @@ Note: This plugin does not work with lightning version 24.08 because it uses the
 1. Clone the repository:
 ```bash
 git clone https://github.com/ca-ruz/bumpit.git
-cd bumpit
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-3. Install dependencies:
-```bash
-# Install plugin dependencies
-pip install -r requirements.txt
-
-# Install test dependencies
-pip install -r requirements-dev.txt
-```
+2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 ## Usage
 

@@ -17,7 +17,7 @@ def test_emergency_reserve_fee_boundary(node_factory):
     l1, l2 = node_factory.get_nodes(2, opts=opts)
 
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
-    addr = l1.rpc.newaddr()['bech32']
+    addr = l1.rpc.newaddr('bech32')['bech32']
     l1.bitcoin.rpc.sendtoaddress(addr, INITIAL_FUNDING / 1e8)
     l1.bitcoin.generate_block(1)
     sync_blockheight(l1.bitcoin, [l1, l2])
