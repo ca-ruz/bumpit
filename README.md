@@ -60,12 +60,12 @@ You need to run the following commands inside of the plugin directory.
 
 1. To run all tests:
 ```bash
-pytest -vs
+uv run pytest -n10
 ```
 
 2. To run an individual test:
 ```bash
-pytest -vs <name_of_the_test_file.py>
+uv run pytest -n10 <name_of_the_test_file.py>
 ```
 
 ## Manual Testing in Regtest
