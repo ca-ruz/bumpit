@@ -20,13 +20,16 @@ git clone https://github.com/ca-ruz/bumpit.git
 
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
+No manual virtualenv or dependency installation is required. The plugin uses
+`uv` from its shebang to install and run its dependencies automatically.
+
 ## Usage
 
 1. Make sure you are running Bitcoin Core and Core Lightning
 
 2. Start the plugin:
 ```bash
-lightning-cli plugin start $PWD/bumpit.py
+lightning-cli plugin start /path/to/bumpit.py
 ```
 
 3. Find a peer ID you want to open a channel with
@@ -72,7 +75,7 @@ uv run pytest -n10 <name_of_the_test_file.py>
 
 Note: By default, the `fund_nodes` command in regtest will automatically mine a block, this will confirm the funding transaction. We need to change this in the config, otherwise we wouldn't be able to test the plugin.
 
-### Steps to deactivate minning the block automatically
+### Steps to deactivate mining the block automatically
 
 1. Navigate to Core Lightning's contrib directory:
 ```bash
