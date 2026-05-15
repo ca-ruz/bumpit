@@ -174,7 +174,7 @@ def bumpchannelopen(plugin, txid, vout, amount, yolo=None):
         plugin.log("Safety mode is ON!")
 
     # Step 1: Get new address
-    new_addr = plugin.rpc.newaddr()
+    new_addr = plugin.rpc.newaddr("bech32")
     address = new_addr.get('bech32')
     plugin.log(f"[BRAVO] Input Parameters - txid: {txid}, vout: {vout}, fee_rate: {fee_rate}")
     plugin.log(f"[BRAVO2.0] Got new bech32 address from node: address: {address}")
