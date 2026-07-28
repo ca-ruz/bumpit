@@ -3,7 +3,7 @@ name = "bumpit"
 version = "0.1.0"
 description = "Create CPFP (Child Pays For Parent) transactions for opening lightning channels in CLN"
 readme = "README.md"
-requires-python = ">=3.9.2"
+requires-python = ">=3.10"
 
 dependencies = [
     "pyln-client>=24.11.1",
